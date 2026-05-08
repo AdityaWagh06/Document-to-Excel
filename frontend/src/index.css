@@ -1,0 +1,94 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color-scheme: light;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen',
+    'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue',
+    sans-serif;
+}
+
+html,
+body,
+#root {
+  min-height: 100%;
+  background: linear-gradient(to bottom right, #f8fafc, #e0f2fe, #faf5ff);
+}
+
+body {
+  margin: 0;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+button,
+input,
+textarea,
+select {
+  font: inherit;
+}
+
+/* AG Grid Light Theme */
+.ag-theme-quartz {
+  --ag-grid-size: 6px;
+  --ag-list-item-height: 32px;
+  --ag-row-height: 48px;
+  --ag-header-height: 48px;
+  --ag-cell-horizontal-padding: 12px;
+  --ag-background-color: #ffffff;
+  --ag-foreground-color: #1e293b;
+  --ag-border-color: #e2e8f0;
+  --ag-header-background-color: #f8fafc;
+  --ag-header-foreground-color: #1e293b;
+  --ag-header-cell-hover-background-color: #f1f5f9;
+  --ag-row-hover-color: #f8fafc;
+  --ag-selected-row-background-color: #e0f2fe;
+  --ag-cell-focus-color: #0ea5e9;
+  --ag-font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', sans-serif;
+}
+
+.ag-theme-quartz .ag-header-cell {
+  font-weight: 600;
+  font-size: 0.875rem;
+  color: #1e293b;
+}
+
+.ag-theme-quartz .ag-cell {
+  font-size: 0.875rem;
+  color: #475569;
+}
+
+.ag-theme-quartz .ag-cell-value {
+  color: #1e293b;
+  font-weight: 500;
+}
+
+/* Scrollbar styling */
+.ag-theme-quartz .ag-body-horizontal-scroll,
+.ag-theme-quartz .ag-body-vertical-scroll {
+  scrollbar-width: thin;
+  scrollbar-color: #cbd5e1 #f1f5f9;
+}
+
+.ag-theme-quartz .ag-body-horizontal-scroll::-webkit-scrollbar,
+.ag-theme-quartz .ag-body-vertical-scroll::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+.ag-theme-quartz .ag-body-horizontal-scroll::-webkit-scrollbar-track,
+.ag-theme-quartz .ag-body-vertical-scroll::-webkit-scrollbar-track {
+  background: #f1f5f9;
+}
+
+.ag-theme-quartz .ag-body-horizontal-scroll::-webkit-scrollbar-thumb,
+.ag-theme-quartz .ag-body-vertical-scroll::-webkit-scrollbar-thumb {
+  background: #cbd5e1;
+  border-radius: 4px;
+}
+
+.ag-theme-quartz .ag-body-horizontal-scroll::-webkit-scrollbar-thumb:hover,
+.ag-theme-quartz .ag-body-vertical-scroll::-webkit-scrollbar-thumb:hover {
+  background: #94a3b8;
+}
