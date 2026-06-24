@@ -58,13 +58,30 @@ def _extract_vendor(text: str) -> str:
 
 
 def _extract_items(text: str) -> list[dict[str, str]]:
+    # More flexible item extraction: look for amount-like tokens on each line
+    amount_re = re.compile(r"([€$£]?\s*\d{1,3}(?:[.,]\d{3})*(?:[.,]\d{2}))")
     items: list[dict[str, str]] = []
-    for match in ITEM_PATTERN.finditer(text):
-        description = match.group(1).strip()
-        amount = match.group(2).strip()
-        if description and amount:
-            items.append({"description": description, "amount": amount})
-    return items[:20]
+    lines = [ln.strip() for ln in text.splitlines() if ln.strip()]
+    for idx, line in enumerate(lines):
+        # Find the last amount-like token in the line
+        matches = list(amount_re.finditer(line))
+        if matches:
+            m = matches[-1]
+            amount = m.group(1).strip()
+            # Description is the line with the amount removed
+            desc = (line[: m.start()] + line[m.end():]).strip()
+            # If description is empty, try previous line as description
+            if not desc and idx > 0:
+                prev = lines[idx - 1]
+                # avoid headings like 'Items:'
+                if not re.search(r"\b(items|qty|quantity|price)\b", prev, re.IGNORECASE):
+                    desc = prev
+            # Clean common bullets or separators
+            desc = re.sub(r"^[\-\u2022\*\s]+", "", desc).strip()
+            if desc or amount:
+                items.append({"description": desc, "amount": amount})
+    # Limit to reasonable count
+    return items[:200]
 
 
 def regex_parse(text: str) -> ParsedDocument:

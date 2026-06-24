@@ -25,10 +25,10 @@ pip install -r backend/requirements.txt
 ```
 
 3. Create `backend/.env` from `backend/.env.example` and set your OpenRouter API key.
-4. Start the API:
+4. Start the API from the repository root:
 
 ```bash
-python backend/app.py
+python -m backend.app
 ```
 
 The backend runs on `http://localhost:5000`.
@@ -49,6 +49,11 @@ npm run dev
 ```
 
 The frontend runs on `http://localhost:5173` and proxies API requests to the Flask backend.
+
+## Frontend Copy
+
+- All visible frontend copy lives in `frontend/src/strings.js`.
+- Edit that file to update labels, headings, status text, and button text in one place.
 
 ## API
 

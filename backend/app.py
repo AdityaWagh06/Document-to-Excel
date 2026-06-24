@@ -7,10 +7,17 @@ import tempfile
 from pathlib import Path
 from io import BytesIO
 from threading import Lock
+import sys
+
+ROOT_DIR = Path(__file__).resolve().parents[1]
+if str(ROOT_DIR) not in sys.path:
+    sys.path.insert(0, str(ROOT_DIR))
 
 # Disable OneDNN for PaddleOCR compatibility
 os.environ['PADDLE_DISABLE_FAST_MATH'] = '1'
-os.environ.setdefault('FLAGS_use_mkldnn', '0')
+os.environ['FLAGS_use_mkldnn'] = '0'
+os.environ['FLAGS_enable_mkldnn'] = '0'
+os.environ['FLAGS_mkldnn'] = '0'
 
 from flask import Flask, jsonify, request, send_file
 from flask_cors import CORS

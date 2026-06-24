@@ -2,20 +2,21 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { AgGridReact } from 'ag-grid-react';
 import 'ag-grid-community/styles/ag-grid.css';
 import 'ag-grid-community/styles/ag-theme-quartz.css';
-import { Upload, Download, Zap, CheckCircle, AlertCircle, Settings, HelpCircle, LogOut } from 'lucide-react';
+import { Upload, Download, Zap, CheckCircle, AlertCircle, Settings, HelpCircle } from 'lucide-react';
+import STR from './strings';
 
 function buildTableRows(payload) {
   const rows = [];
-  rows.push({ id: 'vendor', section: 'Summary', field: 'Vendor', value: payload?.vendor || '', confidence: payload?.confidence ?? 0 });
-  rows.push({ id: 'date', section: 'Summary', field: 'Date', value: payload?.date || '', confidence: payload?.confidence ?? 0 });
-  rows.push({ id: 'total', section: 'Summary', field: 'Total', value: payload?.total || '', confidence: payload?.confidence ?? 0 });
-  rows.push({ id: 'ocr_confidence', section: 'Summary', field: 'OCR Confidence', value: payload?.ocr_confidence?.toFixed ? payload.ocr_confidence.toFixed(3) : String(payload?.ocr_confidence ?? ''), confidence: payload?.ocr_confidence ?? 0 });
+  rows.push({ id: 'vendor', section: STR.summarySection, field: STR.vendorLabel, value: payload?.vendor || '', confidence: payload?.confidence ?? 0 });
+  rows.push({ id: 'date', section: STR.summarySection, field: STR.dateLabel, value: payload?.date || '', confidence: payload?.confidence ?? 0 });
+  rows.push({ id: 'total', section: STR.summarySection, field: STR.totalLabel, value: payload?.total || '', confidence: payload?.confidence ?? 0 });
+  rows.push({ id: 'ocr_confidence', section: STR.summarySection, field: STR.ocrConfidenceLabel, value: payload?.ocr_confidence?.toFixed ? payload.ocr_confidence.toFixed(3) : String(payload?.ocr_confidence ?? ''), confidence: payload?.ocr_confidence ?? 0 });
 
   (payload?.items || []).forEach((item, index) => {
     rows.push({
       id: `item-${index}`,
-      section: 'Line Items',
-      field: item?.description || `Item ${index + 1}`,
+      section: STR.lineItemsSection,
+      field: item?.description || `${STR.itemPrefix} ${index + 1}`,
       value: item?.amount || '',
       confidence: payload?.confidence ?? 0
     });
@@ -31,10 +32,10 @@ function rowsToPayload(rows, basePayload) {
   let total = '';
 
   rows.forEach((row) => {
-    if (row.section === 'Summary' && row.field === 'Vendor') vendor = row.value;
-    if (row.section === 'Summary' && row.field === 'Date') date = row.value;
-    if (row.section === 'Summary' && row.field === 'Total') total = row.value;
-    if (row.section === 'Line Items') {
+    if (row.section === STR.summarySection && row.field === STR.vendorLabel) vendor = row.value;
+    if (row.section === STR.summarySection && row.field === STR.dateLabel) date = row.value;
+    if (row.section === STR.summarySection && row.field === STR.totalLabel) total = row.value;
+    if (row.section === STR.lineItemsSection) {
       items.push({ description: row.field, amount: row.value });
     }
   });
@@ -76,10 +77,10 @@ export default function App() {
   }, [documentState]);
 
   const columnDefs = useMemo(() => [
-    { field: 'section', headerName: 'Section', editable: false, width: 150 },
-    { field: 'field', headerName: 'Field', editable: false, flex: 1 },
-    { field: 'value', headerName: 'Value', editable: true, flex: 1.2 },
-    { field: 'confidence', headerName: 'Confidence', editable: false, width: 140, valueFormatter: (params) => (typeof params.value === 'number' ? params.value.toFixed(3) : params.value) }
+    { field: 'section', headerName: STR.sectionColumn, editable: false, width: 150 },
+    { field: 'field', headerName: STR.fieldColumn, editable: false, flex: 1 },
+    { field: 'value', headerName: STR.valueColumn, editable: true, flex: 1.2 },
+    { field: 'confidence', headerName: STR.confidenceColumn, editable: false, width: 140, valueFormatter: (params) => (typeof params.value === 'number' ? params.value.toFixed(3) : params.value) }
   ], []);
 
   function resetError() {
@@ -95,7 +96,7 @@ export default function App() {
 
   async function handleUpload() {
     if (!selectedFile) {
-      setError('Choose an invoice or receipt image first.');
+      setError(STR.chooseImagePrompt);
       return;
     }
 
@@ -113,7 +114,7 @@ export default function App() {
 
       const data = await response.json();
       if (!response.ok) {
-        throw new Error(data?.error || 'Upload failed.');
+        throw new Error(data?.error || STR.uploadFailed);
       }
 
       setDocumentState({
@@ -127,7 +128,7 @@ export default function App() {
       setRawText(data.raw_text || '');
       setProcessedCount(prev => prev + 1);
     } catch (uploadError) {
-      setError(uploadError.message || 'Something went wrong while processing the document.');
+      setError(uploadError.message || STR.genericProcessError);
     } finally {
       setIsProcessing(false);
     }
@@ -139,20 +140,20 @@ export default function App() {
       const response = await fetch('/download');
       if (!response.ok) {
         const payload = await response.json();
-        throw new Error(payload?.error || 'Download failed.');
+        throw new Error(payload?.error || STR.downloadFailed);
       }
 
       const blob = await response.blob();
       const url = window.URL.createObjectURL(blob);
       const anchor = document.createElement('a');
       anchor.href = url;
-      anchor.download = 'document_extraction.xlsx';
+      anchor.download = STR.downloadFilename;
       document.body.appendChild(anchor);
       anchor.click();
       anchor.remove();
       window.URL.revokeObjectURL(url);
     } catch (downloadError) {
-      setError(downloadError.message || 'Could not download the Excel file.');
+      setError(downloadError.message || STR.couldNotDownload);
     }
   }
 
@@ -178,12 +179,12 @@ export default function App() {
               <Zap className="h-6 w-6 text-white" />
             </div>
             <div>
-              <h1 className="text-lg font-bold text-slate-900">DocExtract Pro</h1>
-              <p className="text-xs text-slate-500">AI-Powered Document Intelligence</p>
+              <h1 className="text-lg font-bold text-slate-900">{STR.appName}</h1>
+              <p className="text-xs text-slate-500">{STR.appTagline}</p>
             </div>
           </div>
           <div className="hidden flex-1 items-center justify-center gap-8 md:flex">
-            <span className="text-sm font-medium text-slate-600">Documents Processed: <span className="text-blue-600 font-bold">{processedCount}</span></span>
+            <span className="text-sm font-medium text-slate-600">{STR.documentsProcessed}: <span className="text-blue-600 font-bold">{processedCount}</span></span>
           </div>
           <div className="flex items-center gap-3">
             <button className="rounded-lg p-2 hover:bg-slate-100 transition">
@@ -202,19 +203,19 @@ export default function App() {
         <div className="mb-8 rounded-2xl bg-white p-8 shadow-sm border border-slate-100">
           <div className="grid gap-6 lg:grid-cols-[1fr_auto]">
             <div>
-              <h2 className="text-3xl font-bold text-slate-900">Smart Document Processing</h2>
-              <p className="mt-2 text-lg text-slate-600">Extract invoices, receipts, and documents with AI-powered accuracy. Upload once, extract structured data instantly.</p>
+              <h2 className="text-3xl font-bold text-slate-900">{STR.heroTitle}</h2>
+              <p className="mt-2 text-lg text-slate-600">{STR.heroSubtitle}</p>
               <div className="mt-6 grid gap-4 sm:grid-cols-3">
-                <Feature icon={<Zap className="h-5 w-5" />} label="AI-Powered" desc="DeepSeek parsing" />
-                <Feature icon={<CheckCircle className="h-5 w-5" />} label="Accurate" desc="97%+ accuracy" />
-                <Feature icon={<Download className="h-5 w-5" />} label="Export Ready" desc="Direct to Excel" />
+                <Feature icon={<Zap className="h-5 w-5" />} label={STR.feature1.label} desc={STR.feature1.desc} />
+                <Feature icon={<CheckCircle className="h-5 w-5" />} label={STR.feature2.label} desc={STR.feature2.desc} />
+                <Feature icon={<Download className="h-5 w-5" />} label={STR.feature3.label} desc={STR.feature3.desc} />
               </div>
             </div>
             <div className="flex items-center justify-center rounded-xl bg-gradient-to-br from-blue-500 to-indigo-600 p-8 text-white shadow-lg">
               <div className="text-center">
                 <Zap className="h-16 w-16 mx-auto mb-3" />
-                <p className="text-sm font-medium">Production Ready</p>
-                <p className="text-2xl font-bold">DocExtract Pro</p>
+                <p className="text-sm font-medium">{STR.productionBadge}</p>
+                <p className="text-2xl font-bold">{STR.appName}</p>
               </div>
             </div>
           </div>
@@ -237,22 +238,22 @@ export default function App() {
               >
                 <div className="text-center">
                   <Upload className={`h-12 w-12 mx-auto mb-4 ${isDragging ? 'text-blue-600' : 'text-slate-400'}`} />
-                  <h3 className="text-lg font-semibold text-slate-900">Upload Document</h3>
-                  <p className="mt-1 text-sm text-slate-600">Drag and drop your invoice or receipt, or click to browse</p>
-                  <p className="mt-1 text-xs text-slate-500">Supported: PNG, JPG, JPEG, PDF preview</p>
+                  <h3 className="text-lg font-semibold text-slate-900">{STR.uploadTitle}</h3>
+                  <p className="mt-1 text-sm text-slate-600">{STR.uploadSubtitle}</p>
+                  <p className="mt-1 text-xs text-slate-500">{STR.uploadSupport}</p>
                   <div className="mt-6 flex flex-wrap gap-3 justify-center">
                     <button
                       onClick={() => fileInputRef.current?.click()}
                       className="inline-flex items-center gap-2 rounded-lg bg-slate-900 text-white px-6 py-3 font-medium hover:bg-slate-800 transition shadow-md"
                     >
-                      <Upload className="h-4 w-4" /> Choose file
+                          <Upload className="h-4 w-4" /> {STR.chooseFile}
                     </button>
                     <button
                       onClick={handleUpload}
                       disabled={isProcessing || !selectedFile}
                       className="inline-flex items-center gap-2 rounded-lg bg-gradient-to-r from-blue-600 to-indigo-600 text-white px-6 py-3 font-medium hover:shadow-lg hover:scale-105 transition disabled:opacity-50 disabled:cursor-not-allowed"
                     >
-                      <Zap className="h-4 w-4" /> {isProcessing ? 'Processing...' : 'Extract Data'}
+                      <Zap className="h-4 w-4" /> {isProcessing ? STR.processing : STR.extractData}
                     </button>
                   </div>
                   <input ref={fileInputRef} type="file" accept="image/*" className="hidden" onChange={(e) => handleFiles(e.target.files)} />
@@ -264,7 +265,7 @@ export default function App() {
                 <div className="mx-4 mb-4 rounded-xl border border-red-200 bg-red-50 p-4 flex items-start gap-3">
                   <AlertCircle className="h-5 w-5 text-red-600 flex-shrink-0 mt-0.5" />
                   <div>
-                    <p className="font-semibold text-red-900">Error</p>
+                    <p className="font-semibold text-red-900">{STR.errorTitle}</p>
                     <p className="text-sm text-red-800">{error}</p>
                   </div>
                 </div>
@@ -272,12 +273,12 @@ export default function App() {
 
               {/* Preview */}
               <div className="p-4 border-t border-slate-100">
-                <h4 className="mb-3 text-sm font-semibold text-slate-900">Document Preview</h4>
+                <h4 className="mb-3 text-sm font-semibold text-slate-900">{STR.previewSectionTitle}</h4>
                 {previewUrl ? (
                   <img src={previewUrl} alt="preview" className="w-full rounded-lg shadow-md max-h-96 object-contain" />
                 ) : (
                   <div className="rounded-lg bg-slate-100 h-48 flex items-center justify-center">
-                    <p className="text-sm text-slate-500">Upload an image to see preview</p>
+                    <p className="text-sm text-slate-500">{STR.previewPlaceholder}</p>
                   </div>
                 )}
               </div>
@@ -287,13 +288,13 @@ export default function App() {
             <div className="rounded-2xl bg-white shadow-sm border border-slate-100 overflow-hidden">
               <div className="border-b border-slate-100 bg-slate-50 px-6 py-4 flex items-center justify-between">
                 <div>
-                  <h4 className="font-semibold text-slate-900">Raw OCR Output</h4>
-                  <p className="text-xs text-slate-600 mt-1">Complete text extracted from document</p>
+                  <h4 className="font-semibold text-slate-900">{STR.rawOCRTitle}</h4>
+                  <p className="text-xs text-slate-600 mt-1">{STR.rawOCRSubtitle}</p>
                 </div>
-                <span className="rounded-full bg-amber-100 px-3 py-1 text-xs font-medium text-amber-800">Debug</span>
+                <span className="rounded-full bg-amber-100 px-3 py-1 text-xs font-medium text-amber-800">{STR.debugBadge}</span>
               </div>
               <pre className="p-6 text-xs leading-relaxed text-slate-600 overflow-auto max-h-64 font-mono bg-slate-50 border-t border-slate-100">
-                {rawText || '(OCR text will appear here after processing)'}
+                {rawText || STR.noDataYet}
               </pre>
             </div>
           </section>
@@ -302,22 +303,22 @@ export default function App() {
           <section className="flex flex-col gap-6">
             {/* Extraction Summary */}
             <div className="grid grid-cols-3 gap-4">
-              <SummaryCard label="Vendor" value={documentState.vendor || '—'} icon={<Zap className="h-5 w-5" />} />
-              <SummaryCard label="Date" value={documentState.date || '—'} icon={<CheckCircle className="h-5 w-5" />} />
-              <SummaryCard label="Total" value={documentState.total || '—'} icon={<Download className="h-5 w-5" />} />
+              <SummaryCard label={STR.vendorLabel} value={documentState.vendor || '—'} icon={<Zap className="h-5 w-5" />} />
+              <SummaryCard label={STR.dateLabel} value={documentState.date || '—'} icon={<CheckCircle className="h-5 w-5" />} />
+              <SummaryCard label={STR.totalLabel} value={documentState.total || '—'} icon={<Download className="h-5 w-5" />} />
             </div>
 
             {/* Confidence Metrics */}
             <div className="grid grid-cols-2 gap-4">
-              <MetricCard label="Extraction Confidence" value={`${confidencePercent}%`} color={confidencePercent >= 80 ? 'green' : confidencePercent >= 60 ? 'yellow' : 'red'} />
-              <MetricCard label="OCR Confidence" value={`${ocrConfidencePercent}%`} color={ocrConfidencePercent >= 80 ? 'green' : ocrConfidencePercent >= 60 ? 'yellow' : 'red'} />
+              <MetricCard label={STR.extractionConfidenceLabel} value={`${confidencePercent}%`} color={confidencePercent >= 80 ? 'green' : confidencePercent >= 60 ? 'yellow' : 'red'} />
+              <MetricCard label={STR.ocrConfidenceLabel} value={`${ocrConfidencePercent}%`} color={ocrConfidencePercent >= 80 ? 'green' : ocrConfidencePercent >= 60 ? 'yellow' : 'red'} />
             </div>
 
             {/* AG Grid Table */}
             <div className="rounded-2xl bg-white shadow-sm border border-slate-100 overflow-hidden flex-1 flex flex-col">
               <div className="border-b border-slate-100 bg-slate-50 px-6 py-4">
-                <h4 className="font-semibold text-slate-900">Extracted Data</h4>
-                <p className="text-xs text-slate-600 mt-1">Edit values directly in the table. Changes are saved automatically.</p>
+                <h4 className="font-semibold text-slate-900">{STR.extractedDataTitle}</h4>
+                <p className="text-xs text-slate-600 mt-1">{STR.extractedDataSubtitle}</p>
               </div>
               <div className="ag-theme-quartz flex-1 overflow-hidden">
                 <AgGridReact
@@ -334,7 +335,7 @@ export default function App() {
                   onClick={handleDownload}
                   className="flex-1 inline-flex items-center justify-center gap-2 rounded-lg bg-gradient-to-r from-green-600 to-emerald-600 text-white px-4 py-3 font-medium hover:shadow-lg hover:scale-105 transition"
                 >
-                  <Download className="h-4 w-4" /> Download as Excel
+                  <Download className="h-4 w-4" /> {STR.downloadExcel}
                 </button>
               </div>
             </div>
@@ -344,10 +345,10 @@ export default function App() {
         {/* Footer Stats */}
         <div className="mt-12 rounded-2xl bg-gradient-to-r from-blue-600 to-indigo-600 p-8 text-white shadow-lg">
           <div className="grid gap-6 sm:grid-cols-4">
-            <FooterStat label="Documents Processed" value={processedCount} />
-            <FooterStat label="Items Extracted" value={(documentState.items || []).length} />
-            <FooterStat label="Average Accuracy" value={`${Math.round((confidencePercent + ocrConfidencePercent) / 2)}%`} />
-            <FooterStat label="Processing Speed" value="< 2s" />
+            <FooterStat label={STR.documentsProcessed} value={processedCount} />
+            <FooterStat label={STR.itemsExtracted} value={(documentState.items || []).length} />
+            <FooterStat label={STR.avgAccuracy} value={`${Math.round((confidencePercent + ocrConfidencePercent) / 2)}%`} />
+            <FooterStat label={STR.processingSpeed} value={STR.processingSpeedValue} />
           </div>
         </div>
       </main>
@@ -408,7 +409,7 @@ function MetricCard({ label, value, color }) {
       <div className="mt-3 flex items-center justify-between">
         <p className={`text-3xl font-bold ${textClasses[color]}`}>{value}</p>
         <span className={`rounded-full px-3 py-1 text-xs font-semibold ${badgeClasses[color]}`}>
-          {color === 'green' ? 'Excellent' : color === 'yellow' ? 'Good' : 'Low'}
+          {color === 'green' ? STR.excellentBadge : color === 'yellow' ? STR.goodBadge : STR.lowBadge}
         </span>
       </div>
     </div>
