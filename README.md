@@ -31,6 +31,12 @@ pip install -r backend/requirements.txt
 python -m backend.app
 ```
 
+	If you prefer to launch from inside `backend/`, run:
+
+```bash
+npm run dev
+```
+
 The backend runs on `http://localhost:5000`.
 
 ## Frontend Setup

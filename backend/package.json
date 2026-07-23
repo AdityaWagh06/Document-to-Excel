@@ -1,0 +1,9 @@
+{
+  "name": "document-to-excel-backend",
+  "private": true,
+  "version": "1.0.0",
+  "scripts": {
+    "dev": "python app.py",
+    "start": "python app.py"
+  }
+}

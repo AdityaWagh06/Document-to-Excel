@@ -19,7 +19,7 @@ os.environ['FLAGS_use_mkldnn'] = '0'
 os.environ['FLAGS_enable_mkldnn'] = '0'
 os.environ['FLAGS_mkldnn'] = '0'
 
-from flask import Flask, jsonify, request, send_file
+from flask import Flask, jsonify, request, send_file, make_response
 from flask_cors import CORS
 from dotenv import load_dotenv
 
@@ -49,6 +49,22 @@ LATEST_DOCUMENT: dict = {
 @app.get("/health")
 def health_check():
     return jsonify({"status": "ok"})
+
+
+@app.get("/")
+def index():
+    return jsonify({
+        "name": "Document to Excel backend",
+        "status": "running",
+        "health": "/health",
+        "upload": "/upload",
+        "download": "/download",
+    })
+
+
+@app.get("/favicon.ico")
+def favicon():
+    return make_response(("", 204))
 
 
 @app.post("/upload")
