@@ -1,22 +1,51 @@
-from flask import Flask, jsonify
+from datetime import timedelta
+import logging
+from flask import Flask, jsonify, request, session, g
 from flask_cors import CORS
 from backend.app.api.v1.routes import api_bp
 from backend.app.api.v1.whatsapp_routes import whatsapp_bp
+from backend.app.auth import auth_bp, AuthService
 from backend.app.app_logging.logger import configure_logger
 from backend.app.ocr.ocr_engine import ocr_manager
 from backend.app.config.settings import settings
 
+logger = logging.getLogger(__name__)
+
+PUBLIC_EXACT_PATHS = {
+    "/health",
+    "/api/v1/health",
+    "/",
+    "/api/v1",
+    "/favicon.ico",
+    "/api/v1/auth/login",
+    "/auth/login",
+    "/api/v1/auth/session",
+    "/auth/session",
+    "/api/v1/whatsapp/webhook",
+    "/whatsapp/webhook",
+}
+
 def create_app():
     # Setup structured logging
     configure_logger()
-    
+
+    # Fail safely in production if critical security secrets are absent
+    settings.validate_production_config()
+
     # Eagerly initialize OCR models once on startup
     ocr_manager.initialize()
-    
+
     app = Flask(__name__)
 
-    # Enforce maximum upload size limit (Default: 16 MiB)
-    app.config["MAX_CONTENT_LENGTH"] = settings.max_upload_size_bytes
+    # Session & Secret Key configuration
+    app.secret_key = settings.secret_key
+    app.config.update(
+        MAX_CONTENT_LENGTH=settings.max_upload_size_bytes,
+        SESSION_COOKIE_HTTPONLY=settings.session_cookie_httponly,
+        SESSION_COOKIE_SAMESITE=settings.session_cookie_samesite,
+        SESSION_COOKIE_SECURE=settings.session_cookie_secure,
+        PERMANENT_SESSION_LIFETIME=timedelta(hours=settings.session_lifetime_hours),
+    )
 
     @app.errorhandler(413)
     def handle_large_upload(error):
@@ -24,12 +53,70 @@ def create_app():
             "error": "File size exceeds the 16 MiB maximum upload limit."
         }), 413
 
-    # Restrict CORS to configured trusted origins
-    CORS(app, resources={r"/*": {"origins": settings.cors_allowed_origins}})
-    
+    # Restrict CORS to configured trusted origins with credentials support
+    CORS(
+        app,
+        supports_credentials=True,
+        resources={r"/*": {"origins": settings.cors_allowed_origins}}
+    )
+
+    # Global Authentication and CSRF Protection Middleware
+    @app.before_request
+    def enforce_auth_and_csrf():
+        # Allow CORS preflight requests through without authentication
+        if request.method == "OPTIONS":
+            return None
+
+        # Normalize path for comparison (strip trailing slashes except root)
+        norm_path = request.path.rstrip("/") if request.path != "/" else "/"
+
+        # Allow explicitly designated public endpoints
+        if norm_path in PUBLIC_EXACT_PATHS or request.path in PUBLIC_EXACT_PATHS:
+            return None
+
+        # Strategy 1: Check programmatic API Key
+        api_key = request.headers.get("X-API-Key") or request.headers.get("Authorization")
+        if api_key and AuthService.authenticate_api_key(api_key):
+            g.authenticated = True
+            g.user = "api_client"
+            g.auth_type = "api_key"
+            return None
+
+        # Strategy 2: Check server-managed browser session
+        if session.get("authenticated") is True:
+            # Enforce CSRF protection on state-changing requests authenticated via cookies
+            if request.method in ("POST", "PUT", "DELETE", "PATCH"):
+                csrf_header = request.headers.get("X-CSRF-Token")
+                expected_csrf = session.get("csrf_token")
+
+                if not AuthService.validate_csrf_token(csrf_header, expected_csrf):
+                    logger.warning(
+                        "CSRF validation failure on %s %s from IP %s",
+                        request.method,
+                        request.path,
+                        request.remote_addr
+                    )
+                    return jsonify({"error": "CSRF validation failed. Missing or invalid CSRF token."}), 403
+
+            g.authenticated = True
+            g.user = session.get("user")
+            g.auth_type = "session"
+            return None
+
+        # Unauthenticated request to sensitive endpoint
+        logger.warning(
+            "Unauthenticated access rejected: %s %s from IP %s",
+            request.method,
+            request.path,
+            request.remote_addr
+        )
+        return jsonify({"error": "Authentication required. Please log in."}), 401
+
     # Register blueprints
     app.register_blueprint(api_bp, url_prefix="")
     app.register_blueprint(api_bp, url_prefix="/api/v1", name="api_v1_prefixed")
     app.register_blueprint(whatsapp_bp, url_prefix="/api/v1/whatsapp")
-    
+    app.register_blueprint(auth_bp, url_prefix="/api/v1/auth")
+    app.register_blueprint(auth_bp, url_prefix="/auth", name="auth_root")
+
     return app

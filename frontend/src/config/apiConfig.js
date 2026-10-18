@@ -9,4 +9,7 @@ export const ENDPOINTS = {
   WHATSAPP_SIMULATE: '/api/v1/whatsapp/simulate',
   SYNC_ERP: (id) => `/api/v1/documents/${id}/sync-erp`,
   EXPORT: (id, format) => `/api/v1/documents/${id}/export/${format}`,
+  LOGIN: '/api/v1/auth/login',
+  LOGOUT: '/api/v1/auth/logout',
+  SESSION: '/api/v1/auth/session',
 };

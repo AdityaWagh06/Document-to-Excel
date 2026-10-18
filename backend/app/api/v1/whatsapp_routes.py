@@ -1,8 +1,13 @@
+import hashlib
+import hmac
+import json
 import logging
-import tempfile
 import os
+import tempfile
+from typing import Optional, Tuple
 import requests
 from flask import Blueprint, jsonify, request
+from backend.app.config.settings import settings
 from backend.app.services.document_service import DocumentService
 from backend.app.utils.url_validator import validate_url, safe_request
 
@@ -10,34 +15,85 @@ logger = logging.getLogger(__name__)
 
 whatsapp_bp = Blueprint("whatsapp", __name__)
 
-WHATSAPP_VERIFY_TOKEN = os.getenv("WHATSAPP_VERIFY_TOKEN", "DOCUMENT_EXCEL_WHATSAPP_TOKEN")
+
+def verify_meta_signature(raw_body: bytes, sig_header: Optional[str], app_secret: Optional[str]) -> Tuple[bool, str]:
+    """
+    Validates Meta's X-Hub-Signature-256 header against the raw request body bytes.
+    Uses constant-time comparison to prevent timing attacks.
+    """
+    if not app_secret:
+        return False, "WhatsApp app secret is not configured on the server."
+
+    if not sig_header:
+        return False, "Missing X-Hub-Signature-256 header."
+
+    clean_header = sig_header.strip()
+    if not clean_header.startswith("sha256="):
+        return False, "Malformed signature header: missing 'sha256=' prefix."
+
+    received_hex = clean_header[7:].strip()
+    if len(received_hex) != 64:
+        return False, "Malformed signature header: invalid SHA-256 hash length."
+
+    try:
+        bytes.fromhex(received_hex)
+    except ValueError:
+        return False, "Malformed signature header: contains non-hexadecimal characters."
+
+    expected_hex = hmac.new(
+        app_secret.encode("utf-8"),
+        raw_body,
+        hashlib.sha256
+    ).hexdigest()
+
+    if not hmac.compare_digest(expected_hex.lower(), received_hex.lower()):
+        return False, "Invalid signature: HMAC-SHA256 digest mismatch."
+
+    return True, "Valid signature."
+
 
 @whatsapp_bp.get("/webhook")
 def verify_webhook():
     """
     WhatsApp Business API Webhook Verification Challenge.
+    Verified with constant-time token comparison without hardcoded fallbacks.
     """
     mode = request.args.get("hub.mode")
     token = request.args.get("hub.verify_token")
     challenge = request.args.get("hub.challenge")
 
+    if not settings.whatsapp_verify_token:
+        logger.error("WHATSAPP_VERIFY_TOKEN is not configured.")
+        return jsonify({"error": "Webhook verify token is not configured on the server."}), 500
+
     if mode == "subscribe":
-        if token == WHATSAPP_VERIFY_TOKEN:
-            logger.info("WhatsApp webhook verified successfully.")
-            return challenge, 200
+        if token and hmac.compare_digest(token, settings.whatsapp_verify_token):
+            logger.info("WhatsApp webhook challenge verified successfully.")
+            return challenge or "", 200
         else:
             logger.warning("WhatsApp webhook verification failed: invalid token.")
             return jsonify({"error": "Forbidden - Invalid verify token."}), 403
 
     return jsonify({"status": "verified", "message": "WhatsApp webhook endpoint active."}), 200
 
+
 @whatsapp_bp.post("/webhook")
 def handle_incoming_whatsapp():
     """
     Handles incoming WhatsApp messages containing invoice photos.
+    Verifies Meta HMAC-SHA256 signature before parsing or processing any content.
     """
+    raw_body = request.get_data()
+    sig_header = request.headers.get("X-Hub-Signature-256")
+
+    is_valid, reason = verify_meta_signature(raw_body, sig_header, settings.whatsapp_app_secret)
+    if not is_valid:
+        logger.warning("Rejected WhatsApp webhook POST from %s: %s", request.remote_addr, reason)
+        return jsonify({"error": f"Unauthorized: {reason}"}), 401
+
+    # Only parse JSON and validate media URLs after signature is strictly verified
     data = request.get_json(silent=True) or {}
-    logger.info("Incoming WhatsApp message: %s", data)
+    logger.info("Verified incoming WhatsApp webhook payload received.")
 
     # Simulation or live WhatsApp Business Cloud API payload
     image_url = data.get("media_url") or data.get("image_url")

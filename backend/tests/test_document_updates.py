@@ -3,6 +3,7 @@ import unittest
 from unittest.mock import patch, MagicMock
 
 from backend.app import create_app
+from backend.app.config.settings import settings
 from backend.app.repository.document_repository import document_repo
 from backend.app.services.document_service import DocumentService
 
@@ -12,6 +13,7 @@ class TestDocumentPersistenceAndExports(unittest.TestCase):
     def setUpClass(cls):
         cls.app = create_app()
         cls.client = cls.app.test_client()
+        cls.client.environ_base["HTTP_X_API_KEY"] = settings.api_secret_key
 
     def setUp(self):
         # Back up existing documents in memory and clear during test

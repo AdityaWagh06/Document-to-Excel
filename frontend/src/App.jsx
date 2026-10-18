@@ -1,9 +1,10 @@
-import { useState, useMemo, useRef } from 'react';
+import { useState, useMemo, useRef, useEffect } from 'react';
 import { Zap, CheckCircle, Download, FileText, Hash } from 'lucide-react';
 import STR from './constants/strings';
 
 import Header from './components/layout/Header';
 import Footer from './components/layout/Footer';
+import LoginModal from './components/common/LoginModal';
 import { SummaryCard, MetricCard } from './components/common/DashboardCards';
 import UploadPreviewCard from './components/document/UploadPreviewCard';
 import RawOcrPanel from './components/document/RawOcrPanel';
@@ -16,12 +17,58 @@ import AnalyticsSection from './components/document/AnalyticsSection';
 
 import { useDocumentProcessor } from './hooks/useDocumentProcessor';
 import { useFilePreview } from './hooks/useFilePreview';
+import { checkSessionApi, logoutApi } from './services/api';
 
 export default function App() {
   const [activeTab, setActiveTab] = useState('extract');
+  const [authUser, setAuthUser] = useState(null);
+  const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
+
   const fileInputRef = useRef(null);
   const processor = useDocumentProcessor();
   const previewUrl = useFilePreview(processor.selectedFile);
+
+  // Synchronize authentication status and handle session expiration gracefully
+  useEffect(() => {
+    checkSessionApi().then((data) => {
+      if (data?.authenticated && data?.user) {
+        setAuthUser(data.user);
+      }
+    });
+
+    function handleUnauthorized() {
+      setIsAuthModalOpen(true);
+    }
+
+    function handleLoginSuccess(event) {
+      setAuthUser(event.detail?.user || 'admin');
+      setIsAuthModalOpen(false);
+    }
+
+    function handleLogoutSuccess() {
+      setAuthUser(null);
+    }
+
+    window.addEventListener('auth:unauthorized', handleUnauthorized);
+    window.addEventListener('auth:login_success', handleLoginSuccess);
+    window.addEventListener('auth:logout_success', handleLogoutSuccess);
+
+    return () => {
+      window.removeEventListener('auth:unauthorized', handleUnauthorized);
+      window.removeEventListener('auth:login_success', handleLoginSuccess);
+      window.removeEventListener('auth:logout_success', handleLogoutSuccess);
+    };
+  }, []);
+
+  async function handleLogout() {
+    try {
+      await logoutApi();
+    } catch (err) {
+      console.error('Logout error:', err);
+    } finally {
+      setAuthUser(null);
+    }
+  }
 
   const columnDefs = useMemo(
     () => [
@@ -99,6 +146,9 @@ export default function App() {
         processedCount={processor.processedCount}
         activeTab={activeTab}
         setActiveTab={setActiveTab}
+        authUser={authUser}
+        onLoginClick={() => setIsAuthModalOpen(true)}
+        onLogoutClick={handleLogout}
       />
 
       <main className="mx-auto max-w-7xl px-4 pb-8 sm:px-6 lg:px-8">
@@ -186,6 +236,14 @@ export default function App() {
         processedCount={processor.processedCount}
         itemsCount={(processor.documentState.items || []).length}
         avgAccuracy={avgAccuracy}
+      />
+
+      <LoginModal
+        isOpen={isAuthModalOpen}
+        onLoginSuccess={(data) => {
+          setAuthUser(data?.user || 'admin');
+          setIsAuthModalOpen(false);
+        }}
       />
     </div>
   );

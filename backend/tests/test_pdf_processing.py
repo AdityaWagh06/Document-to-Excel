@@ -405,6 +405,7 @@ class TestUploadAPIIntegration(unittest.TestCase):
     def setUpClass(cls):
         cls.app = create_app()
         cls.client = cls.app.test_client()
+        cls.client.environ_base["HTTP_X_API_KEY"] = settings.api_secret_key
 
     def setUp(self):
         self.temp_files: list[str] = []

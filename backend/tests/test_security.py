@@ -1,4 +1,7 @@
+import hashlib
+import hmac
 import io
+import json
 import os
 import re
 import socket
@@ -170,6 +173,7 @@ class TestUploadSecurity(unittest.TestCase):
     def setUpClass(cls):
         cls.app = create_app()
         cls.client = cls.app.test_client()
+        cls.client.environ_base["HTTP_X_API_KEY"] = settings.api_secret_key
 
     def test_empty_upload_rejected(self):
         resp = self.client.post("/api/v1/upload", data={})
@@ -264,6 +268,7 @@ class TestEndpointSsrfProtection(unittest.TestCase):
     def setUpClass(cls):
         cls.app = create_app()
         cls.client = cls.app.test_client()
+        cls.client.environ_base["HTTP_X_API_KEY"] = settings.api_secret_key
 
     @patch("backend.app.services.document_service.DocumentService.get_document_by_id")
     def test_sync_erp_blocks_cloud_metadata_ssrf(self, mock_get_doc):
@@ -281,13 +286,23 @@ class TestEndpointSsrfProtection(unittest.TestCase):
             "image_url": "http://127.0.0.1:8080/secret.png",
             "from": "+919999999999"
         }
-        resp = self.client.post("/api/v1/whatsapp/webhook", json=payload)
+        raw_body = json.dumps(payload).encode("utf-8")
+        sig = hmac.new(
+            settings.whatsapp_app_secret.encode("utf-8"),
+            raw_body,
+            hashlib.sha256
+        ).hexdigest()
+        headers = {
+            "X-Hub-Signature-256": f"sha256={sig}",
+            "Content-Type": "application/json"
+        }
+        resp = self.client.post("/api/v1/whatsapp/webhook", data=raw_body, headers=headers)
         self.assertEqual(resp.status_code, 400)
         self.assertIn("Disallowed media URL", resp.get_json().get("error", ""))
 
     def test_whatsapp_verify_token_valid(self):
         resp = self.client.get(
-            "/api/v1/whatsapp/webhook?hub.mode=subscribe&hub.verify_token=DOCUMENT_EXCEL_WHATSAPP_TOKEN&hub.challenge=test_chall_123"
+            f"/api/v1/whatsapp/webhook?hub.mode=subscribe&hub.verify_token={settings.whatsapp_verify_token}&hub.challenge=test_chall_123"
         )
         self.assertEqual(resp.status_code, 200)
         self.assertEqual(resp.get_data(as_text=True), "test_chall_123")

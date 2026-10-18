@@ -146,11 +146,12 @@
 ## 📁 Source Code References
 
 - ⚙️ **Backend Application Entry**: [`backend/app.py`](file:///d:/Document_to_excel/backend/app.py)
+- 🔒 **Authentication & CSRF Security**: [`backend/app/auth/`](file:///d:/Document_to_excel/backend/app/auth/)
 - 📡 **API Routes & Endpoints**: [`backend/app/api/v1/routes.py`](file:///d:/Document_to_excel/backend/app/api/v1/routes.py)
 - 👁️ **OCR Processing Pipeline**: [`backend/app/ocr/ocr_engine.py`](file:///d:/Document_to_excel/backend/app/ocr/ocr_engine.py)
 - 🔍 **Document Parsing Engine**: [`backend/app/parsers/document_parser.py`](file:///d:/Document_to_excel/backend/app/parsers/document_parser.py)
 - 🛡️ **AI Validation Engine**: [`backend/app/services/validation_service.py`](file:///d:/Document_to_excel/backend/app/services/validation_service.py)
 - 📊 **Exporters (Excel, CSV, DOC, Tally)**: [`backend/app/exports/`](file:///d:/Document_to_excel/backend/app/exports/)
 - 🔄 **ERP Connector Service**: [`backend/app/services/erp_service.py`](file:///d:/Document_to_excel/backend/app/services/erp_service.py)
-- 📱 **WhatsApp Webhook Routes**: [`backend/app/api/v1/whatsapp_routes.py`](file:///d:/Document_to_excel/backend/app/api/v1/whatsapp_routes.py)
+- 📱 **WhatsApp Webhook & Signature Verification**: [`backend/app/api/v1/whatsapp_routes.py`](file:///d:/Document_to_excel/backend/app/api/v1/whatsapp_routes.py)
 - 🖥️ **Frontend React Dashboard**: [`frontend/src/App.jsx`](file:///d:/Document_to_excel/frontend/src/App.jsx)
