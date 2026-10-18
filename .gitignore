@@ -1,8 +1,44 @@
-backend/__pycache__/
-backend/.env
+# Virtual environments
+.venv/
 backend/.venv/
+env/
+venv/
+
+# Python cache & bytecode
+__pycache__/
+**/__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+
+# Local configuration & secrets (retain example files)
+.env
+backend/.env
+*.env.local
+*.env.*.local
+!.env.example
+!backend/.env.example
+
+# IDE & Editor configurations
+.vscode/
+.idea/
+
+# Node & Frontend dependencies and build output
+node_modules/
 frontend/node_modules/
 frontend/dist/
-*.xlsx
+dist/
+.vite/
+
+# Customer data persistence, temporary files and logs
+backend/temp/
+!backend/temp/.gitkeep
+backend/logs/
+logs/
 *.log
+*.xlsx
+*.csv
+
+# System files
 .DS_Store
+Thumbs.db
