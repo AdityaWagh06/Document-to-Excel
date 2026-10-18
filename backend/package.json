@@ -3,7 +3,7 @@
   "private": true,
   "version": "1.0.0",
   "scripts": {
-    "dev": "python app.py",
-    "start": "python app.py"
+    "dev": ".venv\\Scripts\\python app.py",
+    "start": ".venv\\Scripts\\python app.py"
   }
 }
