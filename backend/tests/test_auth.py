@@ -3,6 +3,7 @@ import unittest
 from unittest.mock import patch
 
 from backend.app import create_app
+from backend.app.auth import limiter
 from backend.app.config.settings import Settings, settings
 
 
@@ -14,6 +15,10 @@ class TestAuthenticationAndCsrf(unittest.TestCase):
     def setUp(self):
         # Create fresh, clean test client without default headers or cookies
         self.client = self.app.test_client()
+        limiter.reset()
+
+    def tearDown(self):
+        limiter.reset()
 
     def test_unauthenticated_access_rejected_on_protected_endpoints(self):
         """
@@ -221,3 +226,240 @@ class TestAuthenticationAndCsrf(unittest.TestCase):
         self.assertIn("SECRET_KEY must be set", err_msg)
         self.assertIn("APP_ADMIN_PASSWORD", err_msg)
         self.assertIn("WHATSAPP_APP_SECRET", err_msg)
+
+
+class TestLoginRateLimiting(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.app = create_app()
+
+    def setUp(self):
+        self.client = self.app.test_client()
+        limiter.reset()
+
+    def tearDown(self):
+        limiter.reset()
+
+    def test_login_succeeds_below_limit(self):
+        """
+        Valid login attempts succeed without triggering rate limiting.
+        """
+        for _ in range(4):
+            resp = self.client.post("/api/v1/auth/login", json={
+                "username": settings.app_admin_username,
+                "password": settings.app_admin_password
+            })
+            self.assertEqual(resp.status_code, 200)
+
+    def test_repeated_failed_logins_trigger_429(self):
+        """
+        Five failed attempts are permitted; the sixth consecutive failure triggers HTTP 429 Too Many Requests.
+        """
+        for i in range(5):
+            resp = self.client.post("/api/v1/auth/login", json={
+                "username": settings.app_admin_username,
+                "password": "wrong_password"
+            })
+            self.assertEqual(resp.status_code, 401, f"Attempt {i+1} should return 401")
+
+        # 6th attempt exceeds limit
+        resp_blocked = self.client.post("/api/v1/auth/login", json={
+            "username": settings.app_admin_username,
+            "password": "wrong_password"
+        })
+        self.assertEqual(resp_blocked.status_code, 429)
+        data = resp_blocked.get_json()
+        self.assertIn("Too many failed login attempts", data.get("error", ""))
+        self.assertIn("Retry-After", resp_blocked.headers)
+        self.assertIn("X-RateLimit-Limit", resp_blocked.headers)
+
+    def test_rate_limit_shared_across_both_login_aliases(self):
+        """
+        Both /api/v1/auth/login and /auth/login share the same counter bucket so attackers
+        cannot bypass rate limiting by switching endpoint aliases.
+        """
+        # Alternate 5 failed attempts across both endpoints
+        self.assertEqual(self.client.post("/api/v1/auth/login", json={"username": "admin", "password": "bad"}).status_code, 401)
+        self.assertEqual(self.client.post("/auth/login", json={"username": "admin", "password": "bad"}).status_code, 401)
+        self.assertEqual(self.client.post("/api/v1/auth/login", json={"username": "admin", "password": "bad"}).status_code, 401)
+        self.assertEqual(self.client.post("/auth/login", json={"username": "admin", "password": "bad"}).status_code, 401)
+        self.assertEqual(self.client.post("/api/v1/auth/login", json={"username": "admin", "password": "bad"}).status_code, 401)
+
+        # 6th attempt on /auth/login must be blocked
+        blocked_root = self.client.post("/auth/login", json={"username": "admin", "password": "bad"})
+        self.assertEqual(blocked_root.status_code, 429)
+
+        # 7th attempt on /api/v1/auth/login must also be blocked
+        blocked_v1 = self.client.post("/api/v1/auth/login", json={"username": "admin", "password": "bad"})
+        self.assertEqual(blocked_v1.status_code, 429)
+
+    def test_separate_client_ips_have_independent_limits(self):
+        """
+        Different client IP identities have separate independent rate limiting buckets.
+        """
+        # Fail 5 times from IP 192.168.1.50
+        for _ in range(5):
+            r = self.client.post(
+                "/api/v1/auth/login",
+                json={"username": "admin", "password": "bad"},
+                environ_base={"REMOTE_ADDR": "192.168.1.50"}
+            )
+            self.assertEqual(r.status_code, 401)
+
+        # 192.168.1.50 is now blocked
+        blocked = self.client.post(
+            "/api/v1/auth/login",
+            json={"username": "admin", "password": "bad"},
+            environ_base={"REMOTE_ADDR": "192.168.1.50"}
+        )
+        self.assertEqual(blocked.status_code, 429)
+
+        # Separate client IP 192.168.1.51 is NOT blocked and can authenticate successfully
+        allowed = self.client.post(
+            "/api/v1/auth/login",
+            json={"username": settings.app_admin_username, "password": settings.app_admin_password},
+            environ_base={"REMOTE_ADDR": "192.168.1.51"}
+        )
+        self.assertEqual(allowed.status_code, 200)
+
+    def test_rate_limit_expires_with_clock(self):
+        """
+        Rate limit bucket expires and resets after configured time window using controllable clock.
+        """
+        base_time = 1700000000.0
+
+        with patch("time.time", side_effect=lambda: base_time):
+            for _ in range(5):
+                self.client.post("/api/v1/auth/login", json={"username": "admin", "password": "bad"})
+            self.assertEqual(self.client.post("/api/v1/auth/login", json={"username": "admin", "password": "bad"}).status_code, 429)
+
+        # Advance controllable clock by 301 seconds (5 minutes + 1 second)
+        with patch("time.time", side_effect=lambda: base_time + 301.0):
+            resp_after = self.client.post("/api/v1/auth/login", json={"username": "admin", "password": "bad"})
+            self.assertEqual(resp_after.status_code, 401)
+
+    def test_malformed_login_payloads_handled_safely(self):
+        """
+        Malformed JSON or non-dict payloads return 400 and are safely handled by rate limiting.
+        """
+        resp_text = self.client.post("/api/v1/auth/login", data="not json", content_type="text/plain")
+        self.assertEqual(resp_text.status_code, 400)
+
+        resp_list = self.client.post("/api/v1/auth/login", json=["invalid", "array"])
+        self.assertEqual(resp_list.status_code, 400)
+
+        resp_empty = self.client.post("/api/v1/auth/login", json={})
+        self.assertEqual(resp_empty.status_code, 400)
+
+    def test_production_storage_warning_for_in_memory_backend(self):
+        """
+        validate_production_config logs a high-visibility warning when in-memory rate limiting is used in production.
+        """
+        test_settings = Settings()
+        test_settings.flask_env = "production"
+        test_settings.secret_key = "a" * 32
+        test_settings.app_admin_username = "prodadmin"
+        test_settings.app_admin_password = "strongpassword123!"
+        test_settings.whatsapp_app_secret = "b" * 32
+        test_settings.whatsapp_verify_token = "c" * 32
+        test_settings.rate_limit_storage_uri = "memory://"
+
+        with self.assertLogs("backend.app.config.settings", level="WARNING") as cm:
+            test_settings.validate_production_config()
+            self.assertTrue(any("RATE_LIMIT_STORAGE_URI" in line and "in-memory" in line.lower() for line in cm.output))
+
+
+class TestAuthenticationLogSanitization(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.app = create_app()
+
+    def setUp(self):
+        self.client = self.app.test_client()
+        limiter.reset()
+
+    def tearDown(self):
+        limiter.reset()
+
+    def test_crlf_injection_in_username_escaped_and_sanitized(self):
+        """
+        Usernames containing CRLF characters (\\r\\n) are escaped and cannot forge multiple log lines.
+        """
+        malicious_username = "admin\r\n2026-10-19 03:00:00 - Fake Log Injection"
+        with self.assertLogs("backend.app.auth.auth_routes", level="WARNING") as cm:
+            resp = self.client.post("/api/v1/auth/login", json={
+                "username": malicious_username,
+                "password": "wrongpassword"
+            })
+            self.assertEqual(resp.status_code, 401)
+            for line in cm.output:
+                self.assertNotIn("\r", line)
+                self.assertNotIn("\n", line)
+                self.assertIn("admin\\r\\n2026-10-19", line)
+
+    def test_embedded_newlines_and_tabs_escaped(self):
+        """
+        Tabs and embedded newlines are safely escaped.
+        """
+        tab_user = "user\twith\nembedded\rnewlines"
+        with self.assertLogs("backend.app.auth.auth_routes", level="WARNING") as cm:
+            resp = self.client.post("/api/v1/auth/login", json={
+                "username": tab_user,
+                "password": "wrongpassword"
+            })
+            self.assertEqual(resp.status_code, 401)
+            for line in cm.output:
+                self.assertNotIn("\t", line)
+                self.assertNotIn("\n", line)
+                self.assertNotIn("\r", line)
+                self.assertIn("user\\twith\\nembedded\\rnewlines", line)
+
+    def test_control_characters_escaped(self):
+        """
+        Null bytes and unprintable control characters are hex-escaped.
+        """
+        ctrl_user = "user\x00\x08\x1btest"
+        with self.assertLogs("backend.app.auth.auth_routes", level="WARNING") as cm:
+            resp = self.client.post("/api/v1/auth/login", json={
+                "username": ctrl_user,
+                "password": "wrongpassword"
+            })
+            self.assertEqual(resp.status_code, 401)
+            for line in cm.output:
+                self.assertIn("user\\x00\\x08\\x1btest", line)
+
+    def test_extremely_long_username_truncated(self):
+        """
+        Extremely long username strings are truncated to prevent log flooding / resource exhaustion.
+        """
+        huge_user = "A" * 5000
+        with self.assertLogs("backend.app.auth.auth_routes", level="WARNING") as cm:
+            resp = self.client.post("/api/v1/auth/login", json={
+                "username": huge_user,
+                "password": "wrongpassword"
+            })
+            self.assertEqual(resp.status_code, 401)
+            for line in cm.output:
+                self.assertIn("...[truncated]", line)
+                self.assertNotIn("A" * 100, line)
+
+    def test_credentials_and_secrets_never_logged(self):
+        """
+        Passwords, CSRF tokens, and secret keys are never written to auth logs.
+        """
+        secret_password = "super_secret_password_do_not_log_123"
+        with self.assertLogs("backend.app.auth.auth_routes", level="INFO") as cm:
+            # Failed attempt
+            self.client.post("/api/v1/auth/login", json={
+                "username": "testuser",
+                "password": secret_password
+            })
+            # Successful attempt
+            self.client.post("/api/v1/auth/login", json={
+                "username": settings.app_admin_username,
+                "password": settings.app_admin_password
+            })
+            for line in cm.output:
+                self.assertNotIn(secret_password, line)
+                self.assertNotIn(settings.app_admin_password, line)
+                self.assertNotIn(settings.api_secret_key, line)
