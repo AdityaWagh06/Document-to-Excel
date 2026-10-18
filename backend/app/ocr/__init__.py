@@ -1,0 +1,16 @@
+from backend.app.ocr.ocr_engine import (
+    preprocess_image,
+    preprocess_pil_image,
+    load_image_or_pdf,
+    render_pdf_pages,
+    iter_pdf_pages,
+    extract_text,
+    extract_text_from_image,
+    ocr_manager,
+    PDFProcessingError,
+    PDFEncryptedError,
+    PDFEmptyError,
+    PDFCorruptError,
+    PDFPageLimitExceededError,
+    PDFRenderError,
+)
