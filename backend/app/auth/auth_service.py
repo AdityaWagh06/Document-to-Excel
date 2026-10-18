@@ -1,5 +1,6 @@
 import hmac
 import logging
+import re
 import secrets
 from typing import Optional
 
@@ -61,3 +62,29 @@ class AuthService:
         if not provided_token or not expected_token:
             return False
         return hmac.compare_digest(provided_token.strip(), expected_token.strip())
+
+    @staticmethod
+    def sanitize_log_input(value: Optional[str], max_length: int = 64) -> str:
+        """
+        Sanitizes user-controlled input for secure logging.
+        Prevents CRLF log injection, control character abuse, and log flooding.
+        Replaces newlines, carriage returns, tabs, and unprintable characters with safe representations.
+        Enforces a maximum length constraint.
+        """
+        if value is None:
+            return ""
+        val_str = str(value)
+        truncated = val_str[:max_length]
+        import re
+        sanitized = re.sub(
+            r'[\r\n\t\x00-\x1f\x7f-\x9f]',
+            lambda m: {
+                '\r': r'\r',
+                '\n': r'\n',
+                '\t': r'\t'
+            }.get(m.group(0), f"\\x{ord(m.group(0)):02x}"),
+            truncated
+        )
+        if len(val_str) > max_length:
+            sanitized += "...[truncated]"
+        return sanitized

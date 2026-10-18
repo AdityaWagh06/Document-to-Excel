@@ -70,6 +70,11 @@ class Settings:
             "DOCUMENT_EXCEL_WHATSAPP_TOKEN" if self.flask_env != "production" else ""
         )
 
+        # Rate Limiting & Reverse Proxy Configuration
+        self.rate_limit_storage_uri = os.getenv("RATE_LIMIT_STORAGE_URI", "memory://")
+        self.login_rate_limit = os.getenv("LOGIN_RATE_LIMIT", "5 per 5 minutes")
+        self.trusted_proxies_count = int(os.getenv("TRUSTED_PROXIES_COUNT", "0"))
+
     def validate_production_config(self):
         """
         Validates that critical security secrets are properly configured in production mode.
@@ -103,6 +108,15 @@ class Settings:
 
         if any("*" in origin for origin in self.cors_allowed_origins):
             errors.append("CORS_ALLOWED_ORIGINS cannot contain wildcards (*) when credentialed auth is enabled.")
+
+        if self.rate_limit_storage_uri.startswith("memory://"):
+            logger.warning(
+                "PRODUCTION WARNING: RATE_LIMIT_STORAGE_URI is set to '%s'. In-memory rate limiting "
+                "only applies per individual process. In multi-worker deployments (e.g., Gunicorn), "
+                "a shared storage backend like Redis (e.g. 'redis://host:port/0') must be configured "
+                "for global rate limit enforcement.",
+                self.rate_limit_storage_uri
+            )
 
         if errors:
             joined = "; ".join(errors)

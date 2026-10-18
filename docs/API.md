@@ -53,7 +53,10 @@ The AI-Powered Invoice & ERP Automation Platform exposes a secure modular REST A
     "csrf_token": "a1b2c3d4e5f6..."
   }
   ```
-- **Errors**: `400 Bad Request` (missing fields) or `401 Unauthorized` (invalid credentials).
+- **Errors**:
+  - `400 Bad Request`: Missing or malformed payload.
+  - `401 Unauthorized`: Invalid credentials (constant-time verification).
+  - `429 Too Many Requests`: Exceeded login rate limit (default 5 failed attempts per 5 minutes per client IP; includes `Retry-After` and `X-RateLimit-*` headers).
 
 ### 2.2 User Logout
 - **URL**: `/api/v1/auth/logout`

@@ -2,9 +2,10 @@ from datetime import timedelta
 import logging
 from flask import Flask, jsonify, request, session, g
 from flask_cors import CORS
+from flask_limiter.errors import RateLimitExceeded
 from backend.app.api.v1.routes import api_bp
 from backend.app.api.v1.whatsapp_routes import whatsapp_bp
-from backend.app.auth import auth_bp, AuthService
+from backend.app.auth import auth_bp, AuthService, limiter
 from backend.app.app_logging.logger import configure_logger
 from backend.app.ocr.ocr_engine import ocr_manager
 from backend.app.config.settings import settings
@@ -47,11 +48,32 @@ def create_app():
         PERMANENT_SESSION_LIFETIME=timedelta(hours=settings.session_lifetime_hours),
     )
 
+    # Reverse proxy support (if configured behind trusted proxies)
+    if settings.trusted_proxies_count > 0:
+        from werkzeug.middleware.proxy_fix import ProxyFix
+        app.wsgi_app = ProxyFix(
+            app.wsgi_app,
+            x_for=settings.trusted_proxies_count,
+            x_proto=settings.trusted_proxies_count
+        )
+
+    # Initialize rate limiting
+    limiter.init_app(app)
+
     @app.errorhandler(413)
     def handle_large_upload(error):
         return jsonify({
             "error": "File size exceeds the 16 MiB maximum upload limit."
         }), 413
+
+    @app.errorhandler(RateLimitExceeded)
+    def handle_rate_limit_exceeded(error):
+        response = jsonify({
+            "error": "Too many failed login attempts. Please try again later.",
+            "retry_after": error.description
+        })
+        response.status_code = 429
+        return response
 
     # Restrict CORS to configured trusted origins with credentials support
     CORS(
