@@ -27,6 +27,7 @@
 | **5. ERP & Tally Integration** | 3 | 3 | 0 | `DONE` |
 | **6. WhatsApp Automation** | 4 | 4 | 0 | `DONE` |
 | **7. Dashboard & Analytics** | 6 | 6 | 0 | `DONE` |
+| **8. SQLite Persistence & Security** | 5 | 5 | 0 | `DONE` |
 
 ---
 
@@ -147,6 +148,8 @@
 
 - ⚙️ **Backend Application Entry**: [`backend/app.py`](file:///d:/Document_to_excel/backend/app.py)
 - 🔒 **Authentication & CSRF Security**: [`backend/app/auth/`](file:///d:/Document_to_excel/backend/app/auth/)
+- 🗄️ **SQLite Persistence & WAL Connection**: [`backend/app/db/`](file:///d:/Document_to_excel/backend/app/db/)
+- 📦 **Document Repository Layer**: [`backend/app/repository/document_repository.py`](file:///d:/Document_to_excel/backend/app/repository/document_repository.py)
 - 📡 **API Routes & Endpoints**: [`backend/app/api/v1/routes.py`](file:///d:/Document_to_excel/backend/app/api/v1/routes.py)
 - 👁️ **OCR Processing Pipeline**: [`backend/app/ocr/ocr_engine.py`](file:///d:/Document_to_excel/backend/app/ocr/ocr_engine.py)
 - 🔍 **Document Parsing Engine**: [`backend/app/parsers/document_parser.py`](file:///d:/Document_to_excel/backend/app/parsers/document_parser.py)

@@ -69,6 +69,7 @@ The AI-Powered Invoice & ERP Automation Platform exposes a secure modular REST A
     "message": "Successfully logged out."
   }
   ```
+- **Durable Revocation**: Persists the session identifier into the SQLite `revoked_sessions` table. Any subsequent requests attempting to reuse the revoked session cookie are immediately blocked with `401 Unauthorized` (`{"error": "Session has been revoked or logged out. Please log in again."}`).
 
 ### 2.3 Session Status
 - **URL**: `/api/v1/auth/session`
@@ -113,7 +114,17 @@ The AI-Powered Invoice & ERP Automation Platform exposes a secure modular REST A
   }
   ```
 - **Defense**: Media URLs are SSRF-validated (rejecting private IPs, localhost, and non-HTTPS schemes) before image download.
-- **Response**: `200 OK` with processed document payload and structured WhatsApp text reply.
+- **Atomic Idempotency & Deduplication**: The webhook extracts Meta message identifiers (`id`, `message_id`, or `wamid`) and registers them in the SQLite `webhook_events` table under an atomic unique constraint. If Meta or a client retries a previously delivered event:
+  - Image download and OCR parsing are bypassed completely.
+  - The endpoint returns `200 OK` with:
+    ```json
+    {
+      "status": "duplicate",
+      "message": "Event already processed.",
+      "message_id": "wamid.HBgL..."
+    }
+    ```
+- **Response**: `200 OK` with processed document payload and structured WhatsApp text reply on initial delivery.
 
 ### 3.3 WhatsApp Simulation (Browser Testing)
 - **URL**: `/api/v1/whatsapp/simulate`
