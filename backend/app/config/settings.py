@@ -1,6 +1,7 @@
 import logging
 import os
 import secrets
+from pathlib import Path
 from dotenv import load_dotenv
 
 logger = logging.getLogger(__name__)
@@ -74,6 +75,10 @@ class Settings:
         self.rate_limit_storage_uri = os.getenv("RATE_LIMIT_STORAGE_URI", "memory://")
         self.login_rate_limit = os.getenv("LOGIN_RATE_LIMIT", "5 per 5 minutes")
         self.trusted_proxies_count = int(os.getenv("TRUSTED_PROXIES_COUNT", "0"))
+
+        # Database Configuration
+        default_db = str(Path(__file__).resolve().parent.parent.parent / "data" / "invoices.db")
+        self.database_path = os.getenv("DATABASE_PATH", default_db)
 
     def validate_production_config(self):
         """
