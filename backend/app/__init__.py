@@ -9,6 +9,7 @@ from backend.app.auth import auth_bp, AuthService, limiter
 from backend.app.app_logging.logger import configure_logger
 from backend.app.ocr.ocr_engine import ocr_manager
 from backend.app.config.settings import settings
+from backend.app.db import init_db, close_flask_db
 
 logger = logging.getLogger(__name__)
 
@@ -60,6 +61,12 @@ def create_app():
     # Initialize rate limiting
     limiter.init_app(app)
 
+    # Initialize SQLite database schema
+    init_db()
+
+    # Teardown database connection on request context end
+    app.teardown_appcontext(close_flask_db)
+
     @app.errorhandler(413)
     def handle_large_upload(error):
         return jsonify({
@@ -106,6 +113,20 @@ def create_app():
 
         # Strategy 2: Check server-managed browser session
         if session.get("authenticated") is True:
+            # Check server-side session revocation in SQLite
+            session_id = session.get("session_id")
+            if session_id:
+                from backend.app.db.session_repository import session_repo
+                if session_repo.is_session_revoked(session_id):
+                    session.clear()
+                    logger.warning(
+                        "Revoked session rejected on %s %s from IP %s",
+                        request.method,
+                        request.path,
+                        request.remote_addr
+                    )
+                    return jsonify({"error": "Session has been revoked or logged out. Please log in again."}), 401
+
             # Enforce CSRF protection on state-changing requests authenticated via cookies
             if request.method in ("POST", "PUT", "DELETE", "PATCH"):
                 csrf_header = request.headers.get("X-CSRF-Token")
