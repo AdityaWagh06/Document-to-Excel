@@ -33,11 +33,17 @@ dist/
 # Customer data persistence, temporary files and logs
 backend/temp/
 !backend/temp/.gitkeep
+backend/data/
+!backend/data/.gitkeep
 backend/logs/
 logs/
 *.log
 *.xlsx
 *.csv
+*.db
+*.db-wal
+*.db-shm
+*.sqlite
 
 # System files
 .DS_Store
