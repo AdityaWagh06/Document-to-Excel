@@ -1,4 +1,5 @@
 import logging
+import secrets
 from flask import Blueprint, jsonify, request, session
 from backend.app.auth.auth_service import AuthService
 from backend.app.auth.rate_limiter import limiter
@@ -43,6 +44,8 @@ def login():
     session.clear()
     session["authenticated"] = True
     session["user"] = username
+    session_id = secrets.token_hex(16)
+    session["session_id"] = session_id
     csrf_token = AuthService.generate_csrf_token()
     session["csrf_token"] = csrf_token
     session.permanent = True
@@ -59,11 +62,20 @@ def login():
 def logout():
     """
     Clears current session and invalidates the session cookie.
+    Persists session revocation to SQLite to prevent token replay.
     """
+    session_id = session.get("session_id")
     user = session.get("user")
+    if session_id:
+        try:
+            from backend.app.db.session_repository import session_repo
+            session_repo.revoke_session(session_id, user=user)
+        except Exception as exc:
+            logger.warning("Could not persist session revocation to database: %s", exc)
+
     safe_user = AuthService.sanitize_log_input(user) if user else "anonymous"
     session.clear()
-    logger.info("User '%s' logged out.", safe_user)
+    logger.info("User '%s' logged out and session revoked.", safe_user)
     return jsonify({
         "status": "logged_out",
         "message": "Successfully logged out."

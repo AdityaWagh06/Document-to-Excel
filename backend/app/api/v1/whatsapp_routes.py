@@ -4,7 +4,7 @@ import json
 import logging
 import os
 import tempfile
-from typing import Optional, Tuple
+from typing import Optional, Tuple, Any
 import requests
 from flask import Blueprint, jsonify, request
 from backend.app.config.settings import settings
@@ -77,11 +77,36 @@ def verify_webhook():
     return jsonify({"status": "verified", "message": "WhatsApp webhook endpoint active."}), 200
 
 
+def extract_whatsapp_message_id(data: Any) -> Optional[str]:
+    """
+    Extracts a unique WhatsApp message ID (wamid) from Meta Cloud API or simulation payloads.
+    """
+    if not isinstance(data, dict):
+        return None
+    if "id" in data and isinstance(data["id"], str) and data["id"].strip():
+        return data["id"].strip()
+    if "message_id" in data and isinstance(data["message_id"], str) and data["message_id"].strip():
+        return data["message_id"].strip()
+    entries = data.get("entry")
+    if isinstance(entries, list) and len(entries) > 0 and isinstance(entries[0], dict):
+        changes = entries[0].get("changes")
+        if isinstance(changes, list) and len(changes) > 0 and isinstance(changes[0], dict):
+            val = changes[0].get("value")
+            if isinstance(val, dict):
+                messages = val.get("messages")
+                if isinstance(messages, list) and len(messages) > 0 and isinstance(messages[0], dict):
+                    m_id = messages[0].get("id")
+                    if m_id and isinstance(m_id, str) and m_id.strip():
+                        return m_id.strip()
+    return None
+
+
 @whatsapp_bp.post("/webhook")
 def handle_incoming_whatsapp():
     """
     Handles incoming WhatsApp messages containing invoice photos.
     Verifies Meta HMAC-SHA256 signature before parsing or processing any content.
+    Enforces atomic SQLite deduplication on Meta message ID (wamid).
     """
     raw_body = request.get_data()
     sig_header = request.headers.get("X-Hub-Signature-256")
@@ -95,9 +120,31 @@ def handle_incoming_whatsapp():
     data = request.get_json(silent=True) or {}
     logger.info("Verified incoming WhatsApp webhook payload received.")
 
+    sender = data.get("from") or data.get("sender", "+919876543210")
+
+    # Enforce atomic message deduplication across multiple workers and restarts
+    message_id = extract_whatsapp_message_id(data)
+    if message_id:
+        from backend.app.db.webhook_repository import webhook_event_repo
+        is_new = webhook_event_repo.record_event(
+            message_id=message_id,
+            sender=sender,
+            event_type="whatsapp_message",
+            payload=data
+        )
+        if not is_new:
+            logger.warning(
+                "Duplicate WhatsApp webhook message '%s' rejected to ensure idempotent processing.",
+                message_id
+            )
+            return jsonify({
+                "status": "duplicate",
+                "message": "Event already processed.",
+                "message_id": message_id
+            }), 200
+
     # Simulation or live WhatsApp Business Cloud API payload
     image_url = data.get("media_url") or data.get("image_url")
-    sender = data.get("from") or data.get("sender", "+919876543210")
 
     if not image_url:
         return jsonify({
