@@ -39,7 +39,10 @@ class ParsedDocument:
     sgst: str = "0.00"
     igst: str = "0.00"
     tax_total: str = "0.00"
+    discount: str = "0.00"
+    other_charges: str = "0.00"  # tip, service charge, shipping, round-off
     total: str = "0.00"
+    currency: str = ""  # ISO 4217 code as printed on the document; never converted
     items: List[ParsedItem] = field(default_factory=list)
     confidence: float = 0.0
     ocr_confidence: float = 0.0
@@ -47,4 +50,8 @@ class ParsedDocument:
     status: str = "Pending Verification"  # "Verified", "Pending Verification", "Flagged Error"
     erp_sync_status: str = "Not Synced"  # "Not Synced", "Synced", "Failed"
     validation_warnings: List[Dict[str, Any]] = field(default_factory=list)
-    created_at: str = field(default_factory=lambda: datetime.now().isoformat())
+    extraction_method: str = "rules"  # "rules", "ai:openai", "ai:openrouter", "ai-vision:openai"
+    ai_model: str = ""
+    extraction_notes: List[str] = field(default_factory=list)
+    source: str = "Manual Upload"
+    created_at: str = field(default_factory=lambda: datetime.utcnow().isoformat())
