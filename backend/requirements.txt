@@ -1,5 +1,9 @@
+# Core runtime dependencies (required).
+# Local OCR engines are optional and live in requirements-ocr.txt.
 Flask==3.0.3
 flask-cors==4.0.1
+Flask-Limiter==3.11.0
+gunicorn==23.0.0
 pandas==2.3.3
 Pillow==10.4.0
 opencv-python-headless==4.10.0.84
@@ -7,10 +11,4 @@ openpyxl==3.1.5
 requests==2.32.3
 python-dotenv==1.0.1
 pydantic==2.8.2
-paddleocr==2.8.1
-paddlepaddle==3.3.1
-easyocr==1.7.1
 PyMuPDF==1.26.5
-Flask-Limiter==3.11.0
-
-

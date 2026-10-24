@@ -33,9 +33,11 @@ def create_app():
 
     # Fail safely in production if critical security secrets are absent
     settings.validate_production_config()
+    settings.validate_ai_config()
 
-    # Eagerly initialize OCR models once on startup
-    ocr_manager.initialize()
+    # Eagerly initialize OCR models once on startup (OCR_PRELOAD=false defers to first use)
+    if settings.ocr_preload:
+        ocr_manager.initialize()
 
     app = Flask(__name__)
 
@@ -69,9 +71,31 @@ def create_app():
 
     @app.errorhandler(413)
     def handle_large_upload(error):
+        limit_mb = settings.max_upload_size_bytes / (1024 * 1024)
         return jsonify({
-            "error": "File size exceeds the 16 MiB maximum upload limit."
+            "error": f"File size exceeds the {limit_mb:.0f} MiB maximum upload limit."
         }), 413
+
+    @app.errorhandler(404)
+    def handle_not_found(error):
+        return jsonify({"error": "Not found."}), 404
+
+    @app.errorhandler(405)
+    def handle_method_not_allowed(error):
+        return jsonify({"error": "Method not allowed."}), 405
+
+    @app.errorhandler(500)
+    def handle_internal_error(error):
+        return jsonify({"error": "Internal server error."}), 500
+
+    @app.after_request
+    def set_security_headers(response):
+        response.headers.setdefault("X-Content-Type-Options", "nosniff")
+        response.headers.setdefault("X-Frame-Options", "DENY")
+        response.headers.setdefault("Referrer-Policy", "no-referrer")
+        if request.path.startswith(("/api/", "/auth/")):
+            response.headers.setdefault("Cache-Control", "no-store")
+        return response
 
     @app.errorhandler(RateLimitExceeded)
     def handle_rate_limit_exceeded(error):

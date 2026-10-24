@@ -3,7 +3,7 @@
   "private": true,
   "version": "1.0.0",
   "scripts": {
-    "dev": ".venv\\Scripts\\python app.py",
-    "start": ".venv\\Scripts\\python app.py"
+    "dev": "cd .. && python -m backend.app",
+    "start": "cd .. && gunicorn -c backend/gunicorn.conf.py \"backend.app:create_app()\""
   }
 }
