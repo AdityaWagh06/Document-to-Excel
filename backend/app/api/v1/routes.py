@@ -9,9 +9,14 @@ from werkzeug.utils import secure_filename
 
 from flask import Blueprint, jsonify, request, send_file, make_response, Response
 
-from backend.app.services.document_service import DocumentService
+import re
+
+from backend.app.ai import describe_ai_config
+from backend.app.config.settings import settings
+from backend.app.services.document_service import DocumentService, DocumentProcessingError
 from backend.app.services.erp_service import ERPConnectorService
-from backend.app.ocr.ocr_engine import PDFProcessingError
+from backend.app.utils.file_validation import ALLOWED_EXTENSIONS, magic_matches_extension
+from backend.app.ocr.ocr_engine import PDFProcessingError, OCREngineUnavailableError, ocr_manager
 from backend.app.exports.excel_exporter import export_document_to_excel_bytes
 from backend.app.exports.csv_exporter import export_document_to_csv_string
 from backend.app.exports.doc_exporter import export_document_to_doc_summary
@@ -21,11 +26,40 @@ logger = logging.getLogger(__name__)
 
 api_bp = Blueprint("api_v1", __name__)
 
-ALLOWED_EXTENSIONS = {".pdf", ".png", ".jpg", ".jpeg", ".webp"}
 
 @api_bp.get("/health")
 def health_check():
-    return jsonify({"status": "ok", "service": "Invoice & ERP Automation Platform"})
+    """Public liveness/readiness probe used by Docker health checks (no configuration details)."""
+    try:
+        from backend.app.db.connection import get_db
+        with get_db() as conn:
+            conn.execute("SELECT 1").fetchone()
+        db_ok = True
+    except Exception:
+        logger.exception("Health check database probe failed")
+        db_ok = False
+    body = {"status": "ok" if db_ok else "degraded", "service": "Invoice & ERP Automation Platform", "database": db_ok}
+    return jsonify(body), 200 if db_ok else 503
+
+@api_bp.get("/system/status")
+def system_status():
+    """Authenticated, non-secret overview of how the server is configured."""
+    return jsonify({
+        "ai": describe_ai_config(),
+        "ocr": ocr_manager.status(),
+        "erp": ERPConnectorService.describe_config(),
+        "whatsapp": {
+            "webhook_secret_configured": bool(settings.whatsapp_app_secret),
+            "verify_token_configured": bool(settings.whatsapp_verify_token),
+            "media_download_configured": bool(settings.whatsapp_access_token),
+            "simulator_enabled": settings.whatsapp_simulator_enabled,
+        },
+        "limits": {
+            "max_upload_mb": round(settings.max_upload_size_bytes / (1024 * 1024), 1),
+            "max_pdf_pages": settings.max_pdf_pages,
+        },
+        "environment": settings.flask_env,
+    })
 
 @api_bp.get("/")
 def index():
@@ -68,15 +102,7 @@ def upload_document():
     if not header or len(header) == 0:
         return jsonify({"error": "Uploaded file is empty (0 bytes)."}), 400
 
-    is_valid_magic = False
-    if suffix == ".pdf" and header.startswith(b"%PDF-"):
-        is_valid_magic = True
-    elif suffix == ".png" and header.startswith(b"\x89PNG\r\n\x1a\n"):
-        is_valid_magic = True
-    elif suffix in (".jpg", ".jpeg") and header.startswith(b"\xff\xd8\xff"):
-        is_valid_magic = True
-    elif suffix == ".webp" and header.startswith(b"RIFF") and header[8:12] == b"WEBP":
-        is_valid_magic = True
+    is_valid_magic = magic_matches_extension(header, suffix)
 
     if not is_valid_magic:
         return jsonify({"error": f"Malformed file content or extension mismatch for '{safe_name}'."}), 400
@@ -90,6 +116,12 @@ def upload_document():
         document_payload = DocumentService.process_document(temp_path, filename=safe_name)
         return jsonify(document_payload)
 
+    except DocumentProcessingError as d_err:
+        logger.warning("Document processing failed for '%s': %s", safe_name, d_err)
+        return jsonify({"error": str(d_err)}), d_err.status_code
+    except OCREngineUnavailableError as o_err:
+        logger.error("OCR unavailable while processing '%s': %s", safe_name, o_err)
+        return jsonify({"error": str(o_err)}), 503
     except PDFProcessingError as p_err:
         logger.warning("PDF processing rejected file '%s': %s", safe_name, p_err)
         return jsonify({"error": str(p_err)}), 400
@@ -153,19 +185,25 @@ def get_analytics():
 @api_bp.post("/documents/<doc_id>/sync-erp")
 def sync_to_erp(doc_id: str):
     data = request.get_json(silent=True) or {}
-    erp_type = data.get("erp_type", "tally").lower()
-    tally_url = data.get("tally_url", "http://localhost:9000")
-    custom_endpoint = data.get("custom_endpoint", "")
+    erp_type = str(data.get("erp_type", "tally")).lower()
 
-    doc = DocumentService.get_document_by_id(doc_id)
+    if doc_id == "latest":
+        doc = DocumentService.get_latest_document()
+        if not doc or not doc.get("id"):
+            return jsonify({"error": "No invoices have been processed yet. Upload an invoice first."}), 404
+    else:
+        doc = DocumentService.get_document_by_id(doc_id)
     if not doc:
         return jsonify({"error": "Document not found."}), 404
 
     if erp_type == "tally":
+        # The Tally endpoint is operator-configured; a client-supplied URL must match it exactly
+        tally_url = data.get("tally_url") or settings.permitted_tally_url
         res = ERPConnectorService.sync_to_tally(doc, tally_url=tally_url)
     elif erp_type == "custom":
+        custom_endpoint = data.get("custom_endpoint") or settings.custom_erp_endpoint
         if not custom_endpoint:
-            return jsonify({"error": "Custom ERP endpoint URL is required."}), 400
+            return jsonify({"error": "Custom ERP endpoint URL is required (set CUSTOM_ERP_ENDPOINT or provide one)."}), 400
         res = ERPConnectorService.sync_to_custom_erp(doc, custom_endpoint)
     else:
         return jsonify({"error": f"Unsupported ERP type: {erp_type}"}), 400
@@ -190,7 +228,7 @@ def download_export(doc_id: str = "latest", format_type: str = "excel"):
             return jsonify({"error": "No document available for export."}), 400
 
     format_type = format_type.lower()
-    inv_name = doc.get("invoice_number", "document").replace("/", "_")
+    inv_name = re.sub(r"[^A-Za-z0-9._-]+", "_", str(doc.get("invoice_number") or "document")).strip("._")[:60] or "document"
 
     if format_type in ("excel", "xlsx"):
         excel_bytes = export_document_to_excel_bytes(doc)
