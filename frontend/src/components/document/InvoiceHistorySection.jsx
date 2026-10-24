@@ -1,14 +1,22 @@
-import { useState, useEffect } from 'react';
-import { History, Download, RefreshCw, FileText, CheckCircle2, AlertTriangle, Trash2, Search } from 'lucide-react';
-import { fetchDocumentsApi, downloadExportApi, syncErpApi, deleteDocumentApi } from '../../services/api';
+import { useState, useEffect, useMemo } from 'react';
+import { RefreshCw, Trash2, Search, Loader2, FileSpreadsheet, Code, Send, FileText, Pencil } from 'lucide-react';
+import { fetchDocumentsApi, syncErpApi, deleteDocumentApi } from '../../services/api';
+import { useToast } from '../../context/ToastContext';
+import ConfirmDialog from '../common/ConfirmDialog';
+import { StatusBadge, ErpBadge } from '../common/StatusBadge';
+import { downloadDocumentExport } from '../../utils/download';
+import { formatMoney } from '../../utils/money';
 
 export default function InvoiceHistorySection({ onSelectDocument }) {
+  const toast = useToast();
   const [documents, setDocuments] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState('ALL');
   const [syncingId, setSyncingId] = useState(null);
+  const [pendingDelete, setPendingDelete] = useState(null);
+  const [deleting, setDeleting] = useState(false);
 
   async function loadHistory() {
     setLoading(true);
@@ -17,7 +25,7 @@ export default function InvoiceHistorySection({ onSelectDocument }) {
       const docs = await fetchDocumentsApi();
       setDocuments(docs || []);
     } catch (err) {
-      setError(err.message || 'Failed to load document history');
+      setError(err.message || 'Failed to load invoices');
     } finally {
       setLoading(false);
     }
@@ -27,220 +35,220 @@ export default function InvoiceHistorySection({ onSelectDocument }) {
     loadHistory();
   }, []);
 
-  async function handleExport(docId, format) {
+  async function handleExport(doc, format) {
     try {
-      const blob = await downloadExportApi(docId, format);
-      const url = window.URL.createObjectURL(blob);
-      const anchor = document.createElement('a');
-      anchor.href = url;
-      const ext = format === 'tally' ? 'xml' : format === 'doc' ? 'txt' : format;
-      anchor.download = `invoice_${docId}_export.${ext}`;
-      document.body.appendChild(anchor);
-      anchor.click();
-      anchor.remove();
-      window.URL.revokeObjectURL(url);
+      await downloadDocumentExport(doc, format);
     } catch (err) {
-      alert(`Export failed: ${err.message}`);
+      toast.error(`Export failed: ${err.message}`);
     }
   }
 
-  async function handleSyncTally(docId) {
-    setSyncingId(docId);
+  async function handleSyncTally(doc) {
+    setSyncingId(doc.id);
     try {
-      const res = await syncErpApi(docId, { erp_type: 'tally' });
-      alert(res.message);
+      const res = await syncErpApi(doc.id, { erp_type: 'tally' });
+      if (res.status === 'Synced') toast.success(res.message, { title: 'Synced to Tally' });
+      else toast.warning(res.message, { title: 'Tally XML generated', duration: 10000 });
       loadHistory();
     } catch (err) {
-      alert(`ERP Sync failed: ${err.message}`);
+      toast.error(err.message, { title: 'Tally sync failed' });
     } finally {
       setSyncingId(null);
     }
   }
 
-  async function handleDelete(docId) {
-    if (!window.confirm('Are you sure you want to delete this invoice record?')) return;
+  async function confirmDelete() {
+    if (!pendingDelete) return;
+    setDeleting(true);
     try {
-      await deleteDocumentApi(docId);
+      await deleteDocumentApi(pendingDelete.id);
+      toast.success('Invoice deleted.');
+      setPendingDelete(null);
       loadHistory();
     } catch (err) {
-      alert(`Delete failed: ${err.message}`);
+      toast.error(`Delete failed: ${err.message}`);
+    } finally {
+      setDeleting(false);
     }
   }
 
+  const counts = useMemo(() => {
+    const c = { ALL: documents.length, 'Pending Verification': 0, Verified: 0, 'Flagged Error': 0 };
+    documents.forEach((d) => {
+      if (c[d.status] !== undefined) c[d.status] += 1;
+    });
+    return c;
+  }, [documents]);
+
+  const q = searchQuery.trim().toLowerCase();
   const filteredDocs = documents.filter((doc) => {
     const matchesSearch =
-      (doc.vendor || '').toLowerCase().includes(searchQuery.toLowerCase()) ||
-      (doc.invoice_number || '').toLowerCase().includes(searchQuery.toLowerCase()) ||
-      (doc.gstin || '').toLowerCase().includes(searchQuery.toLowerCase());
-
-    if (statusFilter === 'ALL') return matchesSearch;
-    return matchesSearch && doc.status === statusFilter;
+      !q ||
+      [doc.vendor, doc.invoice_number, doc.gstin, doc.source].some((v) => String(v || '').toLowerCase().includes(q));
+    return matchesSearch && (statusFilter === 'ALL' || doc.status === statusFilter);
   });
 
+  const filters = [
+    ['ALL', 'All'],
+    ['Pending Verification', 'To review'],
+    ['Flagged Error', 'Errors'],
+    ['Verified', 'Verified'],
+  ];
+
   return (
-    <div className="rounded-2xl bg-white p-6 shadow-sm border border-slate-100">
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-slate-100">
+    <div className="rounded-2xl border border-slate-200 bg-white shadow-sm">
+      <div className="flex flex-col justify-between gap-3 border-b border-slate-100 p-5 sm:flex-row sm:items-center">
         <div>
-          <h3 className="text-xl font-bold text-slate-900 flex items-center gap-2">
-            <History className="h-6 w-6 text-blue-600" />
-            Invoice History & Verification Dashboard
-          </h3>
-          <p className="text-xs text-slate-500 mt-1">
-            Review, verify, export, or sync extracted invoices directly to Tally or ERP.
-          </p>
+          <h1 className="text-xl font-semibold text-slate-900">Invoices</h1>
+          <p className="text-sm text-slate-500">Review, export or sync processed invoices.</p>
         </div>
         <button
+          type="button"
           onClick={loadHistory}
-          className="flex items-center gap-2 px-3.5 py-2 text-xs font-semibold text-slate-700 bg-slate-100 hover:bg-slate-200 rounded-lg transition"
+          className="inline-flex items-center gap-2 self-start rounded-lg border border-slate-300 px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
         >
-          <RefreshCw className="h-4 w-4" /> Refresh
+          <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} /> Refresh
         </button>
       </div>
 
-      {/* Filter & Search Bar */}
-      <div className="mt-4 flex flex-col sm:flex-row items-center justify-between gap-3">
-        <div className="relative w-full sm:w-80">
-          <Search className="absolute left-3 top-2.5 h-4 w-4 text-slate-400" />
+      <div className="flex flex-col gap-3 p-5 pb-0 lg:flex-row lg:items-center lg:justify-between">
+        <div className="relative w-full lg:w-80">
+          <Search className="absolute left-3 top-2.5 h-4 w-4 text-slate-400" aria-hidden="true" />
           <input
-            type="text"
-            placeholder="Search vendor, GSTIN, invoice #..."
+            type="search"
+            placeholder="Search vendor, GSTIN, invoice #…"
+            aria-label="Search invoices"
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            className="w-full pl-9 pr-3 py-2 text-xs rounded-lg border border-slate-200 focus:outline-none focus:ring-2 focus:ring-blue-500"
+            className="w-full rounded-lg border border-slate-300 py-2 pl-9 pr-3 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/30"
           />
         </div>
-
-        <div className="flex items-center gap-2 w-full sm:w-auto">
-          <span className="text-xs font-semibold text-slate-600">Filter Status:</span>
-          <select
-            value={statusFilter}
-            onChange={(e) => setStatusFilter(e.target.value)}
-            className="text-xs border border-slate-200 rounded-lg px-3 py-2 bg-white font-semibold text-slate-700"
-          >
-            <option value="ALL">All Invoices ({documents.length})</option>
-            <option value="Pending Verification">Pending Verification</option>
-            <option value="Verified">Verified</option>
-            <option value="Flagged Error">Flagged Error</option>
-          </select>
+        <div className="flex flex-wrap gap-1" role="tablist" aria-label="Filter by status">
+          {filters.map(([value, label]) => (
+            <button
+              key={value}
+              type="button"
+              role="tab"
+              aria-selected={statusFilter === value}
+              onClick={() => setStatusFilter(value)}
+              className={`rounded-lg px-3 py-1.5 text-sm font-medium ${
+                statusFilter === value ? 'bg-slate-900 text-white' : 'text-slate-600 hover:bg-slate-100'
+              }`}
+            >
+              {label} <span className="opacity-60">{counts[value]}</span>
+            </button>
+          ))}
         </div>
       </div>
 
-      {/* Table */}
-      {loading ? (
-        <div className="py-12 text-center text-sm text-slate-500">Loading invoice history...</div>
-      ) : error ? (
-        <div className="py-8 text-center text-sm text-rose-600">{error}</div>
-      ) : filteredDocs.length === 0 ? (
-        <div className="py-12 text-center text-sm text-slate-500">
-          No invoice documents found. Upload invoices in the Scanner tab to get started.
-        </div>
-      ) : (
-        <div className="mt-4 overflow-x-auto">
-          <table className="w-full text-left text-xs border-collapse">
-            <thead>
-              <tr className="bg-slate-50 border-b border-slate-200 text-slate-700 font-bold">
-                <th className="py-3 px-3">Date</th>
-                <th className="py-3 px-3">Vendor Name</th>
-                <th className="py-3 px-3">GSTIN</th>
-                <th className="py-3 px-3">Invoice #</th>
-                <th className="py-3 px-3 text-right">Total (₹)</th>
-                <th className="py-3 px-3 text-center">Status</th>
-                <th className="py-3 px-3 text-center">ERP Sync</th>
-                <th className="py-3 px-3 text-right">Actions / Export</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-100">
-              {filteredDocs.map((doc) => (
-                <tr key={doc.id} className="hover:bg-slate-50/80 transition">
-                  <td className="py-3 px-3 text-slate-600 whitespace-nowrap">{doc.date || '—'}</td>
-                  <td className="py-3 px-3 font-semibold text-slate-900">{doc.vendor || 'Unknown'}</td>
-                  <td className="py-3 px-3 text-slate-600 font-mono">{doc.gstin || 'N/A'}</td>
-                  <td className="py-3 px-3 text-slate-800 font-mono">{doc.invoice_number || 'N/A'}</td>
-                  <td className="py-3 px-3 text-right font-bold text-slate-900">₹ {doc.total || '0.00'}</td>
-                  <td className="py-3 px-3 text-center whitespace-nowrap">
-                    <span
-                      className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-bold ${
-                        doc.status === 'Verified'
-                          ? 'bg-emerald-100 text-emerald-800'
-                          : doc.status === 'Flagged Error'
-                          ? 'bg-rose-100 text-rose-800'
-                          : 'bg-amber-100 text-amber-800'
-                      }`}
-                    >
-                      {doc.status === 'Verified' ? <CheckCircle2 className="h-3 w-3" /> : <AlertTriangle className="h-3 w-3" />}
-                      {doc.status}
-                    </span>
-                  </td>
-                  <td className="py-3 px-3 text-center whitespace-nowrap">
-                    <span
-                      className={`px-2 py-0.5 rounded text-[11px] font-semibold ${
-                        doc.erp_sync_status?.includes('Synced')
-                          ? 'bg-blue-100 text-blue-800'
-                          : 'bg-slate-100 text-slate-600'
-                      }`}
-                    >
-                      {doc.erp_sync_status || 'Not Synced'}
-                    </span>
-                  </td>
-                  <td className="py-3 px-3 text-right whitespace-nowrap">
-                    <div className="flex items-center justify-end gap-1.5">
-                      {onSelectDocument && (
-                        <button
-                          onClick={() => onSelectDocument(doc)}
-                          title="Open & Edit in Grid"
-                          className="px-2 py-1 bg-indigo-50 text-indigo-700 hover:bg-indigo-100 rounded text-xs font-semibold border border-indigo-200 transition"
-                        >
-                          Edit
-                        </button>
-                      )}
-                      {/* Export Dropdown */}
-                      <button
-                        onClick={() => handleExport(doc.id, 'excel')}
-                        title="Download Excel (.xlsx)"
-                        className="px-2 py-1 bg-emerald-50 text-emerald-700 hover:bg-emerald-100 rounded text-xs font-semibold border border-emerald-200"
-                      >
-                        Excel
-                      </button>
-                      <button
-                        onClick={() => handleExport(doc.id, 'csv')}
-                        title="Download CSV"
-                        className="px-2 py-1 bg-blue-50 text-blue-700 hover:bg-blue-100 rounded text-xs font-semibold border border-blue-200"
-                      >
-                        CSV
-                      </button>
-                      <button
-                        onClick={() => handleExport(doc.id, 'tally')}
-                        title="Download Tally XML Voucher"
-                        className="px-2 py-1 bg-purple-50 text-purple-700 hover:bg-purple-100 rounded text-xs font-semibold border border-purple-200"
-                      >
-                        Tally XML
-                      </button>
-
-                      {/* Sync to Tally button */}
-                      <button
-                        onClick={() => handleSyncTally(doc.id)}
-                        disabled={syncingId === doc.id}
-                        title="Sync to Tally / ERP"
-                        className="p-1 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded transition"
-                      >
-                        <RefreshCw className={`h-3.5 w-3.5 ${syncingId === doc.id ? 'animate-spin' : ''}`} />
-                      </button>
-
-                      <button
-                        onClick={() => handleDelete(doc.id)}
-                        title="Delete record"
-                        className="p-1 bg-rose-50 hover:bg-rose-100 text-rose-600 rounded transition"
-                      >
-                        <Trash2 className="h-3.5 w-3.5" />
-                      </button>
-                    </div>
-                  </td>
+      <div className="p-5">
+        {loading ? (
+          <div className="flex items-center justify-center gap-2 py-12 text-sm text-slate-500">
+            <Loader2 className="h-4 w-4 animate-spin" /> Loading invoices…
+          </div>
+        ) : error ? (
+          <div className="rounded-lg border border-rose-200 bg-rose-50 p-4 text-sm text-rose-800">{error}</div>
+        ) : filteredDocs.length === 0 ? (
+          <div className="py-12 text-center">
+            <FileText className="mx-auto h-8 w-8 text-slate-300" aria-hidden="true" />
+            <p className="mt-2 text-sm text-slate-500">
+              {documents.length === 0 ? 'No invoices yet. Upload one from “Scan & review”.' : 'No invoices match your filters.'}
+            </p>
+          </div>
+        ) : (
+          <div className="-mx-5 overflow-x-auto">
+            <table className="w-full min-w-[860px] text-left text-sm">
+              <thead>
+                <tr className="border-y border-slate-200 bg-slate-50 text-xs font-semibold uppercase tracking-wide text-slate-500">
+                  <th scope="col" className="px-5 py-2.5">Date</th>
+                  <th scope="col" className="px-3 py-2.5">Vendor</th>
+                  <th scope="col" className="px-3 py-2.5">Invoice #</th>
+                  <th scope="col" className="px-3 py-2.5 text-right">Total</th>
+                  <th scope="col" className="px-3 py-2.5">Status</th>
+                  <th scope="col" className="px-3 py-2.5">ERP</th>
+                  <th scope="col" className="px-5 py-2.5 text-right">Actions</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
+              </thead>
+              <tbody className="divide-y divide-slate-100">
+                {filteredDocs.map((doc) => (
+                  <tr key={doc.id} className="hover:bg-slate-50/70">
+                    <td className="whitespace-nowrap px-5 py-3 text-slate-600">{doc.date || (doc.created_at || '').slice(0, 10) || '—'}</td>
+                    <td className="max-w-[220px] px-3 py-3">
+                      <p className="truncate font-medium text-slate-900">{doc.vendor || 'Unknown vendor'}</p>
+                      <p className="truncate font-mono text-xs text-slate-500">{doc.gstin || 'No GSTIN'}</p>
+                    </td>
+                    <td className="px-3 py-3 font-mono text-xs text-slate-700">{doc.invoice_number || '—'}</td>
+                    <td className="whitespace-nowrap px-3 py-3 text-right font-semibold text-slate-900">{formatMoney(doc.total, doc.currency)}</td>
+                    <td className="px-3 py-3"><StatusBadge status={doc.status} /></td>
+                    <td className="px-3 py-3"><ErpBadge status={doc.erp_sync_status} /></td>
+                    <td className="px-5 py-3">
+                      <div className="flex items-center justify-end gap-1">
+                        {onSelectDocument && (
+                          <button
+                            type="button"
+                            onClick={() => onSelectDocument(doc)}
+                            className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs font-medium text-blue-700 hover:bg-blue-50"
+                          >
+                            <Pencil className="h-3.5 w-3.5" /> Review
+                          </button>
+                        )}
+                        <button
+                          type="button"
+                          onClick={() => handleExport(doc, 'excel')}
+                          title="Download Excel"
+                          aria-label={`Download Excel for ${doc.invoice_number || doc.vendor || 'invoice'}`}
+                          className="rounded-md p-1.5 text-slate-600 hover:bg-slate-100"
+                        >
+                          <FileSpreadsheet className="h-4 w-4" />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleExport(doc, 'tally')}
+                          title="Download Tally XML"
+                          aria-label="Download Tally XML"
+                          className="rounded-md p-1.5 text-slate-600 hover:bg-slate-100"
+                        >
+                          <Code className="h-4 w-4" />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleSyncTally(doc)}
+                          disabled={syncingId === doc.id}
+                          title="Send to Tally"
+                          aria-label="Send to Tally"
+                          className="rounded-md p-1.5 text-slate-600 hover:bg-slate-100 disabled:opacity-50"
+                        >
+                          {syncingId === doc.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setPendingDelete(doc)}
+                          title="Delete"
+                          aria-label="Delete invoice"
+                          className="rounded-md p-1.5 text-rose-600 hover:bg-rose-50"
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+
+      <ConfirmDialog
+        open={Boolean(pendingDelete)}
+        destructive
+        busy={deleting}
+        title="Delete this invoice?"
+        message={`${pendingDelete?.vendor || 'This invoice'}${pendingDelete?.invoice_number ? ` (#${pendingDelete.invoice_number})` : ''} and its extracted data will be permanently removed. This cannot be undone.`}
+        confirmLabel="Delete invoice"
+        onConfirm={confirmDelete}
+        onCancel={() => setPendingDelete(null)}
+      />
     </div>
   );
 }
