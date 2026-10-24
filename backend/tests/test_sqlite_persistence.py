@@ -383,11 +383,13 @@ class TestWhatsAppWebhookDeduplication(unittest.TestCase):
         )
         self.assertFalse(second_attempt, "Replay of existing message_id must be deduplicated")
 
+    @patch("backend.app.api.v1.whatsapp_routes.validate_url", return_value=(True, ""))
     @patch("backend.app.api.v1.whatsapp_routes.safe_request")
     @patch("backend.app.services.document_service.DocumentService.process_document")
-    def test_whatsapp_webhook_endpoint_returns_duplicate_status(self, mock_process, mock_safe_request):
+    def test_whatsapp_webhook_endpoint_returns_duplicate_status(self, mock_process, mock_safe_request, _mock_validate):
+        # validate_url is patched so the test does not depend on live DNS resolution
         mock_http_resp = unittest.mock.MagicMock()
-        mock_http_resp.content = b"fake_png_data"
+        mock_http_resp.content = b"\x89PNG\r\n\x1a\n" + b"fake_png_data"
         mock_http_resp.raise_for_status = unittest.mock.MagicMock()
         mock_safe_request.return_value = mock_http_resp
         mock_process.return_value = {
