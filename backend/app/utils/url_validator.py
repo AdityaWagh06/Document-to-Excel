@@ -100,11 +100,12 @@ def validate_url(
 
             req_port = parsed.port or (80 if scheme == "http" else 443)
 
-            # Permitted Tally must match configured tally host, port, and scheme
-            is_loopback_host = host_lower in {"localhost", "127.0.0.1", "::1"}
+            # Permitted Tally must exactly match the operator-configured host, port and
+            # scheme (e.g. localhost, or host.docker.internal / a LAN IP when Tally runs
+            # on another machine). Client-supplied URLs can never widen this.
             if (
-                scheme == tally_scheme
-                and is_loopback_host
+                tally_scheme in ("http", "https")
+                and scheme == tally_scheme
                 and host_lower == tally_host
                 and req_port == tally_port
             ):
