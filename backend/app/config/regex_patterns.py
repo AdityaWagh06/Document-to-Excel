@@ -18,7 +18,7 @@ DATE_PATTERNS = (
     r"(?:Date|Invoice\s*Date|Bill\s*Date)\s*[:\-]?\s*(\d{4}[-/]\d{1,2}[-/]\d{1,2})",
     r"\b(?:\d{4}[-/]\d{1,2}[-/]\d{1,2})\b",
     r"\b(?:\d{1,2}[-/]\d{1,2}[-/]\d{2,4})\b",
-    r"\b(?:\d{1,2}\s+[A-Za-z]{3,9}\s+\d{2,4})\b",
+    r"\b(?:\d{1,2}[ \t]+(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Sept|Oct|Nov|Dec)[a-z]*\.?,?[ \t]+\d{2,4})\b",
 )
 
 DUE_DATE_PATTERNS = (
@@ -31,15 +31,15 @@ SUBTOTAL_PATTERNS = (
 )
 
 CGST_PATTERNS = (
-    r"(?:CGST|Central\s*GST)\s*(?:\(\s*\d+\.?\d*%\s*\))?\s*[:\-]?\s*[₹S\$€£]?\s*([0-9,]+(?:\.[0-9]{2})?)",
+    r"(?:CGST|Central\s*GST)\s*(?:@?\s*\(?\s*@?\s*\d+(?:\.\d+)?\s*%\s*\)?)?\s*[:\-]?\s*[₹S\$€£]?\s*([0-9,]+(?:\.[0-9]{2})?)",
 )
 
 SGST_PATTERNS = (
-    r"(?:SGST|State\s*GST)\s*(?:\(\s*\d+\.?\d*%\s*\))?\s*[:\-]?\s*[₹S\$€£]?\s*([0-9,]+(?:\.[0-9]{2})?)",
+    r"(?:SGST|State\s*GST)\s*(?:@?\s*\(?\s*@?\s*\d+(?:\.\d+)?\s*%\s*\)?)?\s*[:\-]?\s*[₹S\$€£]?\s*([0-9,]+(?:\.[0-9]{2})?)",
 )
 
 IGST_PATTERNS = (
-    r"(?:IGST|Integrated\s*GST)\s*(?:\(\s*\d+\.?\d*%\s*\))?\s*[:\-]?\s*[₹S\$€£]?\s*([0-9,]+(?:\.[0-9]{2})?)",
+    r"(?:IGST|Integrated\s*GST)\s*(?:@?\s*\(?\s*@?\s*\d+(?:\.\d+)?\s*%\s*\)?)?\s*[:\-]?\s*[₹S\$€£]?\s*([0-9,]+(?:\.[0-9]{2})?)",
 )
 
 TOTAL_PATTERNS = (
@@ -47,7 +47,8 @@ TOTAL_PATTERNS = (
     r"[₹S\$€£]\s*([0-9,]+(?:\.[0-9]{2})?)",
 )
 
-HSN_SAC_PATTERN = re.compile(r"\b\d{4,8}\b")
+# 4/6/8-digit HSN/SAC codes; not part of a decimal or grouped amount
+HSN_SAC_PATTERN = re.compile(r"(?<![\d.,])\d{4,8}(?![\d.,])")
 ITEM_PATTERN = re.compile(r"(?m)^\s*(.+?)\s+([0-9]+(?:[.,][0-9]{2})?)\s*$")
 AMOUNT_RE = re.compile(r"([₹€$£]?\s*\d{1,3}(?:[.,]\d{3})*(?:[.,]\d{2}))")
 
