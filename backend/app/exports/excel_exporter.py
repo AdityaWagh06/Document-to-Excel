@@ -4,7 +4,14 @@ import pandas as pd
 
 from backend.app.config.excel_constants import EXCEL_ENGINE, SHEET_EXTRACTED_DATA, SHEET_SUMMARY
 
+
+def _money_label(name: str, document: Dict[str, Any]) -> str:
+    """Column header with the document's own currency, e.g. 'Grand Total (USD)'."""
+    currency = (document.get("currency") or "").strip().upper()
+    return f"{name} ({currency})" if currency else name
+
 def document_to_dataframe(document: Dict[str, Any]) -> pd.DataFrame:
+    m = lambda name: _money_label(name, document)
     items = document.get("items") or []
     item_rows = []
     
@@ -32,10 +39,10 @@ def document_to_dataframe(document: Dict[str, Any]) -> pd.DataFrame:
                 "Item Description": item.get("description", ""),
                 "HSN/SAC": item.get("hsn_sac", ""),
                 "Quantity": item.get("qty", "1"),
-                "Unit Price (₹)": item.get("unit_price", "0.00"),
+                m("Unit Price"): item.get("unit_price", "0.00"),
                 "Tax Rate": item.get("tax_rate", "0%"),
-                "Tax Amount (₹)": item.get("tax_amount", "0.00"),
-                "Item Total (₹)": item.get("amount", "0.00"),
+                m("Tax Amount"): item.get("tax_amount", "0.00"),
+                m("Item Total"): item.get("amount", "0.00"),
             })
 
     if not item_rows:
@@ -48,10 +55,10 @@ def document_to_dataframe(document: Dict[str, Any]) -> pd.DataFrame:
             "Item Description": "N/A",
             "HSN/SAC": "",
             "Quantity": "1",
-            "Unit Price (₹)": total,
+            m("Unit Price"): total,
             "Tax Rate": "0%",
-            "Tax Amount (₹)": tax_total,
-            "Item Total (₹)": total,
+            m("Tax Amount"): tax_total,
+            m("Item Total"): total,
         })
 
     return pd.DataFrame(item_rows)
@@ -60,18 +67,22 @@ def export_document_to_excel_bytes(document: Dict[str, Any]) -> bytes:
     dataframe = document_to_dataframe(document)
     buffer = BytesIO()
 
+    m = lambda name: _money_label(name, document)
     summary_row = [{
         "Vendor Name": document.get("vendor", ""),
         "GSTIN": document.get("gstin", ""),
         "Invoice Number": document.get("invoice_number", ""),
         "Invoice Date": document.get("date", ""),
         "Due Date": document.get("due_date", ""),
-        "Subtotal (₹)": document.get("subtotal", "0.00"),
-        "CGST (₹)": document.get("cgst", "0.00"),
-        "SGST (₹)": document.get("sgst", "0.00"),
-        "IGST (₹)": document.get("igst", "0.00"),
-        "Tax Total (₹)": document.get("tax_total", "0.00"),
-        "Grand Total (₹)": document.get("total", "0.00"),
+        "Currency": document.get("currency", ""),
+        m("Subtotal"): document.get("subtotal", "0.00"),
+        m("CGST"): document.get("cgst", "0.00"),
+        m("SGST"): document.get("sgst", "0.00"),
+        m("IGST"): document.get("igst", "0.00"),
+        m("Tax Total"): document.get("tax_total", "0.00"),
+        m("Discount"): document.get("discount", "0.00"),
+        m("Other Charges"): document.get("other_charges", "0.00"),
+        m("Grand Total"): document.get("total", "0.00"),
         "Verification Status": document.get("status", "Pending Verification"),
         "ERP Sync Status": document.get("erp_sync_status", "Not Synced"),
         "Extraction Confidence": f"{round((document.get('confidence', 0.0) * 100), 1)}%",

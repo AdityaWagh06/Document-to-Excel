@@ -10,6 +10,8 @@ def export_document_to_doc_summary(document: Dict[str, Any]) -> str:
     total = document.get("total", "0.00")
     status = document.get("status", "Pending Verification")
     warnings = document.get("validation_warnings", [])
+    currency = (document.get("currency") or "").strip().upper()
+    cur = f"{currency} " if currency else ""
 
     items = document.get("items") or []
 
@@ -21,14 +23,17 @@ def export_document_to_doc_summary(document: Dict[str, Any]) -> str:
         f" GSTIN / Tax ID    : {gstin}",
         f" Invoice Number    : {inv_no}",
         f" Invoice Date      : {date}",
+        f" Currency          : {currency or 'Not detected'}",
         f" Verification      : {status}",
         "--------------------------------------------------------------------------",
-        f" Subtotal          : ₹ {subtotal}",
-        f" CGST              : ₹ {document.get('cgst', '0.00')}",
-        f" SGST              : ₹ {document.get('sgst', '0.00')}",
-        f" IGST              : ₹ {document.get('igst', '0.00')}",
-        f" Tax Total         : ₹ {tax_total}",
-        f" GRAND TOTAL       : ₹ {total}",
+        f" Subtotal          : {cur}{subtotal}",
+        f" CGST              : {cur}{document.get('cgst', '0.00')}",
+        f" SGST              : {cur}{document.get('sgst', '0.00')}",
+        f" IGST              : {cur}{document.get('igst', '0.00')}",
+        f" Tax Total         : {cur}{tax_total}",
+        f" Discount          : {cur}{document.get('discount', '0.00')}",
+        f" Other Charges     : {cur}{document.get('other_charges', '0.00')}",
+        f" GRAND TOTAL       : {cur}{total}",
         "==========================================================================",
         "                              LINE ITEMS                                  ",
         "==========================================================================",
@@ -40,7 +45,7 @@ def export_document_to_doc_summary(document: Dict[str, Any]) -> str:
             qty = item.get("qty", "1")
             price = item.get("unit_price", "0.00")
             amt = item.get("amount", "0.00")
-            lines.append(f" {idx}. {desc:<35} | Qty: {qty:<5} | Rate: ₹{price:<8} | Total: ₹{amt}")
+            lines.append(f" {idx}. {desc:<35} | Qty: {qty:<5} | Rate: {cur}{price:<8} | Total: {cur}{amt}")
 
     lines.append("==========================================================================")
     lines.append("                           VALIDATION AUDIT                               ")
