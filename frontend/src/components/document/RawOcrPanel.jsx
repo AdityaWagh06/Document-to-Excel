@@ -1,20 +1,28 @@
+import { useState } from 'react';
+import { ChevronDown } from 'lucide-react';
 import STR from '../../constants/strings';
 
 export default function RawOcrPanel({ rawText }) {
+  const [open, setOpen] = useState(false);
   return (
-    <div className="rounded-2xl bg-white shadow-sm border border-slate-100 overflow-hidden">
-      <div className="border-b border-slate-100 bg-slate-50 px-6 py-4 flex items-center justify-between">
+    <div className="mt-6 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        aria-expanded={open}
+        className="flex w-full items-center justify-between px-5 py-3.5 text-left hover:bg-slate-50"
+      >
         <div>
-          <h4 className="font-semibold text-slate-900">{STR.rawOCRTitle}</h4>
-          <p className="text-xs text-slate-600 mt-1">{STR.rawOCRSubtitle}</p>
+          <h4 className="text-sm font-semibold text-slate-900">{STR.rawOCRTitle}</h4>
+          <p className="mt-0.5 text-xs text-slate-500">{STR.rawOCRSubtitle}</p>
         </div>
-        <span className="rounded-full bg-amber-100 px-3 py-1 text-xs font-medium text-amber-800">
-          {STR.debugBadge}
-        </span>
-      </div>
-      <pre className="p-6 text-xs leading-relaxed text-slate-600 overflow-auto max-h-64 font-mono bg-slate-50 border-t border-slate-100">
-        {rawText || STR.noDataYet}
-      </pre>
+        <ChevronDown className={`h-4 w-4 text-slate-500 transition ${open ? 'rotate-180' : ''}`} aria-hidden="true" />
+      </button>
+      {open && (
+        <pre className="max-h-72 overflow-auto border-t border-slate-100 bg-slate-50 p-5 font-mono text-xs leading-relaxed text-slate-600 whitespace-pre-wrap">
+          {rawText || STR.noDataYet}
+        </pre>
+      )}
     </div>
   );
 }
