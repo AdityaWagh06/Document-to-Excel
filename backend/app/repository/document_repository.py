@@ -9,6 +9,8 @@ from typing import Dict, Any, List, Optional
 
 from backend.app.config.settings import settings
 from backend.app.db.connection import get_db, init_db
+from backend.app.utils.currency import detect_currency, normalize_currency
+from backend.app.utils.text_utils import amount_to_float
 
 logger = logging.getLogger(__name__)
 
@@ -183,6 +185,8 @@ class DocumentRepository:
                 pass
 
         doc.pop("extra_data", None)
+        if not doc.get("currency"):
+            doc["currency"] = document_currency(doc)
         return doc
 
     def _get_all_from_db(self) -> List[Dict[str, Any]]:
@@ -421,33 +425,37 @@ class DocumentRepository:
     def get_analytics(self) -> Dict[str, Any]:
         """
         Aggregates financial and verification metrics across all documents.
+
+        Amounts in different currencies are never added together: totals are
+        reported per currency, and the headline figures (total_spend,
+        total_tax, monthly) use the main currency, the one with most invoices.
         """
         with self._lock:
             docs = self._get_all_from_db()
 
-            total_invoices = len(docs)
-            total_spend = 0.0
-            total_tax = 0.0
             pending_verification = 0
             verified_count = 0
             flagged_errors = 0
             synced_erp = 0
 
-            vendors_map: Dict[str, Dict[str, Any]] = {}
+            currency_map: Dict[str, Dict[str, Any]] = {}
+            vendors_map: Dict[tuple, Dict[str, Any]] = {}
+            monthly_map: Dict[str, Dict[str, Any]] = {}
+            enriched = []
 
             for doc in docs:
-                total_str = str(doc.get("total", "0")).replace(",", "")
-                try:
-                    val = float(total_str) if total_str else 0.0
-                    total_spend += val
-                except ValueError:
-                    val = 0.0
+                currency = document_currency(doc)
+                # amount_to_float also repairs values like "1.180.00" stored by older versions
+                val = amount_to_float(doc.get("total"))
+                tax = amount_to_float(doc.get("tax_total"))
+                enriched.append((doc, currency, val))
 
-                tax_str = str(doc.get("tax_total", "0")).replace(",", "")
-                try:
-                    total_tax += float(tax_str) if tax_str else 0.0
-                except ValueError:
-                    pass
+                bucket = currency_map.setdefault(
+                    currency, {"currency": currency, "count": 0, "total_spend": 0.0, "total_tax": 0.0}
+                )
+                bucket["count"] += 1
+                bucket["total_spend"] += val
+                bucket["total_tax"] += tax
 
                 st = doc.get("status", "Pending Verification")
                 if st == "Verified":
@@ -461,23 +469,54 @@ class DocumentRepository:
                     synced_erp += 1
 
                 vname = str(doc.get("vendor", "Unknown Vendor")).strip() or "Unknown Vendor"
-                if vname not in vendors_map:
-                    vendors_map[vname] = {"vendor": vname, "count": 0, "total_spend": 0.0}
-                vendors_map[vname]["count"] += 1
-                vendors_map[vname]["total_spend"] += val
+                entry = vendors_map.setdefault(
+                    (vname, currency), {"vendor": vname, "currency": currency, "count": 0, "total_spend": 0.0}
+                )
+                entry["count"] += 1
+                entry["total_spend"] += val
 
-            vendor_list = sorted(list(vendors_map.values()), key=lambda x: x["total_spend"], reverse=True)
+            currency_totals = sorted(
+                ({**c, "total_spend": round(c["total_spend"], 2), "total_tax": round(c["total_tax"], 2)}
+                 for c in currency_map.values()),
+                key=lambda c: (c["count"], c["total_spend"]), reverse=True,
+            )
+            main = currency_totals[0] if currency_totals else {"currency": "", "total_spend": 0.0, "total_tax": 0.0}
+
+            for doc, currency, val in enriched:
+                month = str(doc.get("date") or "")[:7]
+                if not (len(month) == 7 and month[4] == "-" and month[:4].isdigit()):
+                    month = str(doc.get("created_at") or "")[:7]
+                if len(month) == 7:
+                    bucket = monthly_map.setdefault(month, {"month": month, "count": 0, "total_spend": 0.0})
+                    bucket["count"] += 1
+                    if currency == main["currency"]:
+                        bucket["total_spend"] += val
+
+            for entry in vendors_map.values():
+                entry["total_spend"] = round(entry["total_spend"], 2)
+            vendor_list = sorted(vendors_map.values(), key=lambda x: (x["currency"] == main["currency"], x["total_spend"]), reverse=True)
 
             return {
-                "total_invoices": total_invoices,
-                "total_spend": round(total_spend, 2),
-                "total_tax": round(total_tax, 2),
+                "total_invoices": len(docs),
+                "currency": main["currency"],
+                "total_spend": main["total_spend"],
+                "total_tax": main["total_tax"],
+                "currency_totals": currency_totals,
                 "pending_verification": pending_verification,
                 "verified_count": verified_count,
                 "flagged_errors": flagged_errors,
                 "synced_erp": synced_erp,
                 "vendors_summary": vendor_list[:10],
+                "monthly": [
+                    {**m, "total_spend": round(m["total_spend"], 2), "currency": main["currency"]}
+                    for m in sorted(monthly_map.values(), key=lambda x: x["month"])[-12:]
+                ],
             }
+
+
+def document_currency(doc: Dict[str, Any]) -> str:
+    """Stored currency, or (for invoices saved before currency was tracked) detected from the text."""
+    return normalize_currency(doc.get("currency") or "") or detect_currency(doc.get("raw_text") or "", doc.get("gstin") or "")
 
 
 document_repo = DocumentRepository()

@@ -1,7 +1,7 @@
 import json
 import sqlite3
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional, Dict, Any
 
 from backend.app.db.connection import get_db
@@ -35,7 +35,7 @@ class WebhookEventRepository:
             return True  # If no identifier can be extracted, do not block processing
 
         clean_id = str(message_id).strip()
-        created_at = datetime.utcnow().isoformat()
+        created_at = datetime.now(timezone.utc).replace(tzinfo=None).isoformat()
         payload_str = json.dumps(payload, ensure_ascii=False) if payload else "{}"
 
         try:
@@ -57,6 +57,33 @@ class WebhookEventRepository:
             logger.error("Database error while recording webhook event '%s': %s", clean_id, exc)
             # Fail closed or handle gracefully; re-raise to protect against silent bypass
             raise
+
+    def update_status(self, message_id: str, status: str) -> None:
+        """Records the processing outcome of a previously recorded event."""
+        if not message_id:
+            return
+        try:
+            with get_db(self.db_path) as conn:
+                conn.execute(
+                    "UPDATE webhook_events SET status = ? WHERE message_id = ?",
+                    (status, str(message_id).strip()),
+                )
+        except Exception as exc:
+            logger.error("Failed to update webhook event '%s' status: %s", message_id, exc)
+
+    def release_event(self, message_id: str) -> None:
+        """
+        Removes an event whose processing failed for a transient reason so that the
+        sender's automatic retry (Meta retries failed deliveries) is processed again.
+        """
+        if not message_id:
+            return
+        try:
+            with get_db(self.db_path) as conn:
+                conn.execute("DELETE FROM webhook_events WHERE message_id = ?", (str(message_id).strip(),))
+            logger.info("Released webhook event '%s' for retry.", message_id)
+        except Exception as exc:
+            logger.error("Failed to release webhook event '%s': %s", message_id, exc)
 
     def is_event_processed(self, message_id: str) -> bool:
         if not message_id:
