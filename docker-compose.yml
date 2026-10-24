@@ -1,0 +1,62 @@
+# Production-style deployment: nginx (frontend + reverse proxy) -> Gunicorn/Flask API.
+#   cp .env.example .env   # then edit .env
+#   docker compose up -d --build
+# The app is served on http://localhost:${HTTP_PORT:-8080}. Put an HTTPS
+# reverse proxy in front for internet-facing deployments (see README).
+name: docextract
+
+services:
+  backend:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+      args:
+        INSTALL_OCR: ${INSTALL_OCR:-true}
+    image: ${IMAGE_PREFIX:-docextract}/backend:${IMAGE_TAG:-latest}
+    env_file: .env
+    environment:
+      FLASK_ENV: ${FLASK_ENV:-production}
+      DATABASE_PATH: /app/data/invoices.db
+      LOG_TO_FILE: "false"
+      # nginx in front = 1 trusted hop. Add 1 for every extra proxy/load balancer in front of nginx.
+      TRUSTED_PROXIES_COUNT: ${TRUSTED_PROXIES_COUNT:-1}
+    volumes:
+      - app-data:/app/data          # SQLite database (back this up)
+      - ocr-models:/home/app        # downloaded OCR model files (cache)
+    extra_hosts:
+      # Lets the container reach Tally running on the Docker host:
+      # PERMITTED_TALLY_URL=http://host.docker.internal:9000
+      - "host.docker.internal:host-gateway"
+    restart: unless-stopped
+    expose:
+      - "5000"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:5000/api/v1/health', timeout=4).status == 200 else 1)"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 300s
+
+  frontend:
+    build:
+      context: .
+      dockerfile: frontend/Dockerfile
+    image: ${IMAGE_PREFIX:-docextract}/frontend:${IMAGE_TAG:-latest}
+    depends_on:
+      backend:
+        condition: service_healthy
+    ports:
+      - "${HTTP_BIND:-0.0.0.0}:${HTTP_PORT:-8080}:8080"
+    restart: unless-stopped
+    read_only: true
+    tmpfs:
+      - /tmp
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8080/healthz"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+volumes:
+  app-data:
+  ocr-models:
