@@ -1,6 +1,6 @@
 # System Architecture
 
-The AI-Powered Invoice & ERP Automation Platform is built using a decoupled Client-Server architecture with local-first AI, deterministic validation, and durable SQLite persistence.
+The AI-Powered Invoice & ERP Automation Platform is built using a decoupled client-server architecture: local text extraction (PDF text layer, then local OCR), server-side AI extraction (OpenAI or OpenRouter) with a rule-based fallback, deterministic validation, human review and durable SQLite persistence.
 
 ## 1. Overview
 
@@ -9,8 +9,10 @@ graph TD
     Client[React + Vite Frontend] <--> API[Flask REST API /api/v1]
     API <--> Auth[Auth & Session Service]
     API <--> Service[Document Processing Service]
-    Service <--> OCR[Multi-Provider OCR Engine]
-    Service <--> Parser[Document Parser Regex + LLM]
+    Service <--> OCR[PDF text layer + PaddleOCR/EasyOCR]
+    Service <--> Parser[Document Parser: AI structured output + rules]
+    Parser <--> AI[AI providers: OpenAI / OpenRouter]
+    Service <--> ERP[ERP service: Tally XML server / custom ERP]
     Service <--> Validation[Deterministic Validation Engine]
     Service <--> Export[Export Engines Excel, CSV, XML, Doc]
     Service <--> Repo[Document Repository]
@@ -34,10 +36,11 @@ graph TD
    - Webhook idempotency and audit store (`webhook_repository.py`).
    - Safe, idempotent JSON-to-SQLite migration utility (`migrate_json_to_sqlite.py`).
 4. **Service Layer (`backend/app/services/`)**: Orchestrates document processing, OCR extraction, deterministic validation, analytics aggregation, and ERP dispatch.
-5. **OCR Engine (`backend/app/ocr/`)**: Multi-page PDF renderer (PyMuPDF) and OCR fallback pipeline (Local PaddleOCR, EasyOCR, OCR.Space API).
-6. **Document Parser (`backend/app/parsers/`)**: Structured regex templates and fallback LLM extraction.
-7. **Export Services (`backend/app/exports/`)**: Excel (.xlsx via openpyxl), CSV, Document Summary, and Tally ERP XML voucher generators.
-8. **Repository Layer (`backend/app/repository/`)**: Thread-safe, SQLite-backed repository managing invoice records, analytics aggregation, and CRUD operations.
+5. **OCR Engine (`backend/app/ocr/`)**: Uses the embedded PDF text layer when a page has one; otherwise renders the page (PyMuPDF) and runs local OCR (PaddleOCR first, EasyOCR as backup, selectable with `OCR_ENGINES`). Engines are loaded once, guarded by a lock, and reported through `/api/v1/system/status`.
+6. **AI Providers (`backend/app/ai/`)**: `OpenAIProvider` (primary; Structured Outputs with a strict JSON schema, vision input) and `OpenRouterProvider` (optional, with fallback models). Shared retry/backoff, timeout and typed error handling; keys are never logged or returned.
+7. **Document Parser (`backend/app/parsers/`)**: Calls the configured AI provider, falls back to rule-based Indian GST extraction on any AI failure, fills empty AI fields from the rules, and lowers confidence for AI values not present in the document text.
+8. **Export Services (`backend/app/exports/`)**: Excel (.xlsx via openpyxl), CSV, Document Summary, and Tally ERP XML voucher generators.
+9. **Repository Layer (`backend/app/repository/`)**: Thread-safe, SQLite-backed repository managing invoice records, analytics aggregation, and CRUD operations.
 
 ---
 
@@ -68,11 +71,11 @@ Stores complete invoice headers, financial figures, line items, and audit metada
 | `confidence` | REAL | DEFAULT 0.0 | Overall extraction confidence score (0.0 to 1.0) |
 | `ocr_confidence` | REAL | DEFAULT 0.0 | OCR text recognition confidence |
 | `raw_text` | TEXT | DEFAULT '' | Full OCR raw text extracted across all pages |
-| `status` | TEXT | DEFAULT 'Pending Verification' | 'Pending Verification', 'Verified', 'Flagged Error' |
-| `erp_sync_status` | TEXT | DEFAULT 'Not Synced' | 'Not Synced', 'Synced', 'Failed' |
+| `status` | TEXT | DEFAULT 'Pending Verification' | 'Pending Verification' (shown as Pending), 'Verified', 'Flagged Error' |
+| `erp_sync_status` | TEXT | DEFAULT 'Not Synced' | 'Not Synced', 'Synced', 'XML Generated', 'Failed' |
 | `validation_warnings` | TEXT | DEFAULT '[]' | JSON-serialized validation warning objects |
-| `source` | TEXT | DEFAULT 'Manual Upload' | 'Manual Upload', 'Camera', 'WhatsApp (+...)' |
-| `extra_data` | TEXT | DEFAULT '{}' | JSON-serialized arbitrary legacy/custom attributes |
+| `source` | TEXT | DEFAULT 'Manual Upload' | 'Manual Upload', 'WhatsApp (+...)' (simulator uploads use the sender typed in the simulator) |
+| `extra_data` | TEXT | DEFAULT '{}' | JSON attributes such as `extraction_method`, `ai_model`, `extraction_notes`, `original_filename` |
 | `created_at` | TEXT | NOT NULL | ISO 8601 creation timestamp |
 | `updated_at` | TEXT | NOT NULL | ISO 8601 last update timestamp |
 
@@ -174,3 +177,20 @@ Ensure all three files (if WAL and SHM exist) are backed up together:
 - `backend/data/invoices.db`
 - `backend/data/invoices.db-wal` (if present)
 - `backend/data/invoices.db-shm` (if present)
+
+---
+
+## 7. Deployment Architecture
+
+```
+Browser -> (optional HTTPS proxy) -> frontend container: nginx-unprivileged :8080
+                                        /      -> React build (static)
+                                        /api/  -> backend container: gunicorn (gthread) :5000 -> Flask
+backend volumes: app-data (/app/data, SQLite), ocr-models (/home/app, model cache)
+```
+
+- Both containers run as non-root; the frontend container has a read-only filesystem.
+- gunicorn runs `WEB_CONCURRENCY` workers (default 1) with 4 threads each. With more than one worker or host, set `RATE_LIMIT_STORAGE_URI` to Redis so login rate limits are shared.
+- `TRUSTED_PROXIES_COUNT` tells Flask how many proxies to trust for client IPs (1 for the bundled nginx).
+- Health checks: backend `GET /api/v1/health` (includes a database check), frontend `GET /healthz`.
+

@@ -106,13 +106,15 @@ The AI-Powered Invoice & ERP Automation Platform exposes a secure modular REST A
   1. Computes expected HMAC-SHA256 signature using `WHATSAPP_APP_SECRET` over exact raw request body bytes.
   2. Compares signature in constant time using `hmac.compare_digest`.
   3. Rejects missing, malformed, or invalid signatures with `401 Unauthorized` BEFORE parsing JSON or fetching media URLs.
-- **Payload**:
+- **Payload**: either the standard Meta WhatsApp Cloud API notification (`entry[].changes[].value.messages[]` with an `image` or `document` message; the media is downloaded from the Graph API using `WHATSAPP_ACCESS_TOKEN`), or the legacy simple form:
   ```json
   {
     "media_url": "https://example.com/invoice.png",
     "from": "+919876543210"
   }
   ```
+- **Non-media events**: status updates and text messages are acknowledged with `200 OK` (`"status": "ignored"`) so Meta does not retry them.
+- **Retries**: if processing fails for a temporary reason (network, OCR unavailable), the event registration is released and `500` is returned so Meta's retry is processed. Permanent problems (unsupported file, missing configuration) return `200` with an error status to stop retries.
 - **Defense**: Media URLs are SSRF-validated (rejecting private IPs, localhost, and non-HTTPS schemes) before image download.
 - **Atomic Idempotency & Deduplication**: The webhook extracts Meta message identifiers (`id`, `message_id`, or `wamid`) and registers them in the SQLite `webhook_events` table under an atomic unique constraint. If Meta or a client retries a previously delivered event:
   - Image download and OCR parsing are bypassed completely.
@@ -124,14 +126,15 @@ The AI-Powered Invoice & ERP Automation Platform exposes a secure modular REST A
       "message_id": "wamid.HBgL..."
     }
     ```
-- **Response**: `200 OK` with processed document payload and structured WhatsApp text reply on initial delivery.
+- **Response**: `200 OK` with the processed document. When `WHATSAPP_SEND_REPLIES=true` and `WHATSAPP_ACCESS_TOKEN`/`WHATSAPP_PHONE_NUMBER_ID` are set, a summary reply is sent to the sender.
 
 ### 3.3 WhatsApp Simulation (Browser Testing)
 - **URL**: `/api/v1/whatsapp/simulate`
 - **Method**: `POST` (Protected: requires session + CSRF or API key)
 - **Content-Type**: `multipart/form-data`
 - **Parameters**: `image` (binary file), `sender` (phone string).
-- **Response**: `200 OK` with simulated bot reply.
+- **Availability**: disabled (`404`) when `WHATSAPP_SIMULATOR_ENABLED=false`.
+- **Response**: `200 OK` with the processed document, the reply text and `"simulated": true`. Nothing is sent to WhatsApp.
 
 ---
 
@@ -139,55 +142,62 @@ The AI-Powered Invoice & ERP Automation Platform exposes a secure modular REST A
 
 ### 4.1 Health Check
 - **URL**: `/api/v1/health`
-- **Method**: `GET` (Public)
-- **Response**: `200 OK` (`{"service": "Invoice & ERP Automation Platform", "status": "ok"}`)
+- **Method**: `GET` (Public, used by Docker health checks)
+- **Response**: `200 OK` `{"service": "...", "status": "ok", "database": true}`, or `503` with `"status": "degraded"` when the database is unreachable.
 
-### 4.2 Upload & Process Document
+### 4.2 System Status
+- **URL**: `/api/v1/system/status` (Protected)
+- **Method**: `GET`
+- **Response**: `200 OK` with configuration flags only (never secrets): `ai` (provider, model, configured, errors), `ocr` (engines available), `erp` (Tally URL, company, custom endpoint configured), `whatsapp` (secrets/access token configured, simulator enabled) and upload `limits`.
+
+### 4.3 Upload & Process Document
 - **URL**: `/api/v1/upload` (Protected)
 - **Method**: `POST`
 - **Content-Type**: `multipart/form-data`
 - **Parameters**:
-  - `file` or `image` (binary file): `.pdf`, `.png`, `.jpg`, `.jpeg`, `.webp` (up to 16 MiB). Validated by extension and magic bytes.
-- **Response**: `200 OK` (JSON document object).
+  - `file` or `image` (binary file): `.pdf`, `.png`, `.jpg`, `.jpeg`, `.webp` (up to `MAX_UPLOAD_SIZE_BYTES`). Validated by extension and magic bytes.
+- **Response**: `200 OK` (JSON document object, including `extraction_method` (`ai`, `ai_vision`, `rules`), `ai_model`, `extraction_notes`, `confidence`, `ocr_confidence`, `warnings`, `status`).
+- **Errors**: `400` invalid/unsupported/corrupt file, `413` too large, `422` no text could be read, `503` no OCR engine and no AI vision available for a scanned document.
 
-### 4.3 List Invoices
+### 4.4 List Invoices
 - **URL**: `/api/v1/documents` (Protected)
 - **Method**: `GET`
-- **Response**: `200 OK` (Array of saved documents).
+- **Response**: `200 OK` (array of saved documents).
 
-### 4.4 Get Invoice by ID
+### 4.5 Get Invoice by ID
 - **URL**: `/api/v1/documents/<doc_id>` (Protected)
 - **Method**: `GET`
 - **Response**: `200 OK` or `404 Not Found`.
 
-### 4.5 Save Invoice Corrections
+### 4.6 Save Invoice Corrections
 - **URL**: `/api/v1/documents/<doc_id>` (Protected)
 - **Method**: `PUT`
 - **Headers**: `Content-Type: application/json`, `X-CSRF-Token: <token>`
-- **Payload**: Updated document fields (e.g. `vendor`, `total`, `items`).
-- **Validation**: Server automatically strips any client warnings, re-runs authoritative validation, and updates `status`.
-- **Response**: `200 OK` (updated document) or `400 Bad Request` or `404 Not Found`.
+- **Payload**: Updated document fields (e.g. `vendor`, `total`, `items`). `status` may be set to `Pending` or `Verified`; `Verified` is refused while validation errors remain. `erp_status` must be one of `Not Synced`, `Synced`, `XML Generated`, `Failed`.
+- **Validation**: Server strips client warnings, re-runs authoritative validation and recomputes `status`.
+- **Response**: `200 OK` (updated document), `400 Bad Request` or `404 Not Found`.
 
-### 4.6 Delete Invoice
+### 4.7 Delete Invoice
 - **URL**: `/api/v1/documents/<doc_id>` (Protected)
 - **Method**: `DELETE`
 - **Headers**: `X-CSRF-Token: <token>`
 - **Response**: `200 OK` (`{"status": "deleted", "id": "<doc_id>"}`) or `404 Not Found`.
 
-### 4.7 Export Document
+### 4.8 Export Document
 - **URL**: `/api/v1/documents/<doc_id>/export/<format_type>` (Protected)
 - **Method**: `GET`
-- **Parameters**: `format_type`: `excel`, `csv`, `doc`, or `tally`.
-- **Response**: Binary or text attachment.
+- **Parameters**: `format_type`: `excel`, `csv`, `doc` (text summary) or `tally` (XML voucher).
+- **Response**: Binary or text attachment with a sanitised file name based on the invoice number.
 
-### 4.8 Spend Analytics
+### 4.9 Spend Analytics
 - **URL**: `/api/v1/analytics` (Protected)
 - **Method**: `GET`
-- **Response**: `200 OK` (aggregated financial metrics and vendor summaries).
+- **Response**: `200 OK` (totals, GST totals, status counts, spend by vendor and by month for the last 12 months).
 
-### 4.9 ERP Synchronization
-- **URL**: `/api/v1/documents/<doc_id>/sync-erp` (Protected)
+### 4.10 ERP Synchronization
+- **URL**: `/api/v1/documents/<doc_id>/sync-erp` (Protected). `<doc_id>` may be `latest` for the most recently processed invoice.
 - **Method**: `POST`
 - **Headers**: `Content-Type: application/json`, `X-CSRF-Token: <token>`
-- **Payload**: `{"erp_type": "tally", "tally_url": "http://localhost:9000"}` or `{"erp_type": "custom", "custom_endpoint": "https://..."}`.
-- **Security**: Validates URL against SSRF and cloud metadata access.
+- **Payload**: `{"erp_type": "tally"}` (optional `tally_url`, which must equal `PERMITTED_TALLY_URL`) or `{"erp_type": "custom"}` (optional `custom_endpoint`; defaults to `CUSTOM_ERP_ENDPOINT`).
+- **Result `erp_status`**: `Synced` (Tally reported the voucher created with no errors, or the custom ERP returned 2xx), `Failed` (Tally's error message is returned), `XML Generated` (Tally unreachable; download the XML via the export endpoint).
+- **Security**: URLs are validated against SSRF and cloud metadata access. Invoices missing vendor, invoice number or total are refused.

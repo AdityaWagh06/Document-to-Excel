@@ -1,0 +1,186 @@
+# MASTER PROMPT — Complete, Secure, Deployment-Ready AI Invoice Automation Platform
+
+You are Claude Opus 5.5 acting as a senior full-stack engineer, AI engineer, security engineer, and DevOps engineer.
+
+**Project:** AI-Powered Invoice & ERP Automation Platform  
+**Repository:** https://github.com/AdityaWagh06/Document-to-Excel  
+**Local directory:** `D:\Document_to_excel`
+
+## Objective
+
+Turn the existing project into a polished, reliable, secure, fully documented application that I can hand over to a client. The client should be able to configure their own API key and environment variables, follow the README, and run or deploy the application without needing me to modify the source code.
+
+**Do not rewrite the application from scratch.** Inspect the existing implementation, preserve working features, and improve the current architecture incrementally.
+
+## 1. Audit the entire project first
+
+Inspect the repository, Git history, working tree, backend, frontend, dependencies, tests, documentation, integrations, configuration, and existing deployment setup.
+
+- Preserve all uncommitted changes and existing user data.
+- Identify incomplete, broken, mocked, or misleadingly documented features.
+- Run existing tests and builds before modifying anything.
+- Create a prioritized implementation plan based on actual findings.
+- Do not stop after the audit; continue implementing and validating the work.
+- Do not commit, reset, or discard changes unless explicitly instructed.
+
+## 2. Make AI configuration client-ready
+
+The primary LLM provider must support the **official OpenAI API**, configured using the client's own `OPENAI_API_KEY` and configurable model name.
+
+- Inspect the current OpenRouter integration and implement a clean provider abstraction.
+- Support the official OpenAI API correctly, including structured outputs where supported, timeouts, retries, and useful error handling.
+- Preserve OpenRouter support if practical, with provider-specific configuration rather than hardcoded URLs or assumptions.
+- Configure the provider and model through environment variables.
+- Validate configuration at startup or when the AI feature is invoked, with actionable error messages.
+- Never hardcode, log, expose, or commit API keys.
+- Keep all AI calls on the backend; never expose provider credentials to React.
+- If an AI provider is unavailable, provide a clearly defined fallback where appropriate. Never silently fabricate extracted invoice values.
+- Document how to obtain and configure API credentials.
+
+Do not assume that entering an API key alone is sufficient if external services, model access, or other configuration is required.
+
+## 3. Complete document processing
+
+Verify and improve the complete workflow:
+
+- Upload invoice images and multi-page PDFs.
+- Validate file type, size, and content securely.
+- Extract text using the existing OCR engines and PDF processing pipeline.
+- Use the configured LLM to extract structured invoice fields and line items.
+- Validate extracted data using typed schemas and Indian GST rules.
+- Handle missing fields, invalid responses, low-confidence results, timeouts, and OCR failures.
+- Support human review and editing before exporting financial data.
+- Preserve invoice history, analytics, and existing export functionality.
+
+Include clear processing states and meaningful error messages throughout the UI.
+
+## 4. Complete persistence and integrations
+
+Inspect the existing persistence implementation and replace fragile JSON-file storage with an appropriate database if needed.
+
+Prefer **SQLite for a straightforward single-instance deployment**, unless the actual requirements justify PostgreSQL or another database. Do not add MongoDB or extra infrastructure without a concrete reason.
+
+- Implement safe, repeatable migration from existing data.
+- Preserve document IDs, edits, timestamps, and historical data.
+- Add database transactions, appropriate indexes, and reliable concurrent-access handling.
+- Implement durable WhatsApp webhook idempotency and server-side session revocation.
+- Preserve authentication, CSRF protection, API-key authentication, and WhatsApp signature verification.
+- Make ERP integrations configurable, secure, and explicit about which features are implemented versus simulated.
+- Never claim that a simulated integration is a working live integration.
+
+## 5. Security and production readiness
+
+Review the complete application for:
+
+- Authentication and authorization bypasses.
+- Login rate limiting and shared storage requirements.
+- SSRF, unsafe URL fetching, file upload attacks, and path traversal.
+- CSRF, CORS, session security, webhook replay, and signature verification.
+- Secret leakage, unsafe logging, and sensitive error responses.
+- Database concurrency, backups, and data loss.
+- Production configuration and reverse-proxy behavior.
+
+Use secure defaults, least privilege, parameterized queries, non-root containers, and production-safe cookie settings. Document HTTPS and trusted-proxy requirements.
+
+Do not weaken existing protections to make tests pass.
+
+## 6. Improve the UI professionally
+
+Upgrade the existing React interface into a modern, cohesive business application suitable for a real client.
+
+- Create a polished dashboard with clear metrics and invoice activity.
+- Improve spacing, typography, colors, responsive layouts, navigation, tables, forms, and empty states.
+- Make upload and document-processing progress understandable.
+- Improve invoice preview, editable fields, validation indicators, error states, and export actions.
+- Provide accessible components, useful loading states, toast notifications, and confirmation for destructive actions.
+- Ensure login and session-expiry flows work correctly.
+- Support desktop and mobile layouts.
+- Avoid unnecessary dependencies, decorative clutter, and gratuitous redesigns that break existing workflows.
+
+Inspect the actual UI before making design changes. Reuse existing components where sensible.
+
+## 7. Docker and deployment
+
+Provide a reproducible deployment setup using Docker and Docker Compose.
+
+- Create production-appropriate Dockerfiles for the frontend and backend, or a simpler architecture if justified by the existing code.
+- Use a production WSGI server for Flask rather than Flask's development server.
+- Build and serve the frontend correctly, with API routing configured for deployment.
+- Include health checks, sensible restart policies, non-root execution, and persistent storage for the database and required files.
+- Handle OCR dependencies and model initialization appropriately.
+- Configure environment variables through an `.env` file without baking secrets into images.
+- Provide `.env.example` containing placeholders only.
+- Include a `.dockerignore` and ensure virtual environments, credentials, caches, and unnecessary files are excluded.
+- Add GitHub Actions workflows for backend tests, frontend builds, and Docker image validation.
+- Where appropriate, add a workflow to publish versioned images to GitHub Container Registry.
+- Document how to run locally, deploy, update, back up, and restore the application.
+
+The normal client setup should require only the documented prerequisites, their own configuration values, and a small number of straightforward commands.
+
+## 8. Testing and quality assurance
+
+Add or improve automated tests for the real critical workflows.
+
+- Run all existing backend tests and new regression tests.
+- Build the frontend for production.
+- Test authentication, document persistence, migrations, exports, AI-provider errors, and webhook security.
+- Test duplicate webhook delivery and concurrent database operations where relevant.
+- Validate Docker builds and Docker Compose configuration.
+- Ensure secrets are not required for tests; mock external AI calls.
+- Fix regressions introduced by your changes.
+
+Report the exact commands executed and their actual results. Never claim that a test, deployment, or integration succeeded if it was not actually verified.
+
+## 9. Documentation and client handover
+
+Write a clear, complete README covering:
+
+- Features and architecture.
+- Prerequisites.
+- Local development setup.
+- OpenAI API key and model configuration.
+- Optional alternative provider configuration.
+- Docker deployment.
+- Environment variable reference.
+- Database initialization, migration, backups, and restore.
+- Authentication setup and production security.
+- WhatsApp webhook configuration and signature requirements.
+- ERP integration configuration and limitations.
+- Troubleshooting and common errors.
+- Tests and maintenance.
+
+Remove outdated or inaccurate claims. Clearly label optional integrations, simulations, and external service requirements.
+
+## 10. Execution rules
+
+Work autonomously and prioritize correctness over unnecessary complexity.
+
+1. Audit the existing project and record the baseline.
+2. Implement changes in logical, manageable phases.
+3. Run relevant tests after each significant change.
+4. Preserve all existing functionality and data.
+5. Avoid unnecessary dependencies and architecture changes.
+6. Do not require paid services other than those the client explicitly chooses to configure.
+7. Do not commit changes or perform destructive Git operations.
+8. Do not stop at writing a plan; complete as much of the implementation as possible, validate it, and report anything that genuinely remains blocked.
+
+If a task depends on credentials or external infrastructure that are unavailable, implement the configuration and integration path, test what can be tested safely, and document the exact manual step required.
+
+## Final acceptance criteria
+
+The project is ready for client handover only when:
+
+- A new developer can follow the README from a clean checkout.
+- The application can be configured with the client's own OpenAI API key.
+- The core invoice workflow works end to end.
+- Database persistence and migration are safe.
+- Authentication and webhook security remain effective.
+- Existing tests pass and the frontend builds.
+- Docker deployment is reproducible.
+- GitHub Actions validates future changes.
+- No secrets or local-only assumptions are required.
+- Known limitations and external setup requirements are documented.
+
+At completion, provide a concise report with the architecture, implemented features, files changed, tests and builds executed, Docker verification results, Git status, environment variables required, remaining blockers, and exact client startup instructions.
+
+Begin by inspecting the actual repository and proceed carefully. Do not assume features are complete just because they are documented.
