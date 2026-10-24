@@ -13,4 +13,6 @@ from backend.app.ocr.ocr_engine import (
     PDFCorruptError,
     PDFPageLimitExceededError,
     PDFRenderError,
+    OCREngineUnavailableError,
+    read_pdf_text_layers,
 )

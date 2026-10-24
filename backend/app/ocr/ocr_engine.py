@@ -1,7 +1,9 @@
 from __future__ import annotations
 import logging
 import os
+import re
 import sys
+import threading
 from abc import ABC, abstractmethod
 from typing import Optional, Union, Generator, Tuple, List
 
@@ -61,6 +63,11 @@ class PDFPageLimitExceededError(PDFProcessingError):
 
 class PDFRenderError(PDFProcessingError):
     """Raised when PDF page dimensions exceed safety limits."""
+    pass
+
+
+class OCREngineUnavailableError(Exception):
+    """Raised when no OCR engine is installed/loaded and the page has no text layer."""
     pass
 
 
@@ -143,6 +150,45 @@ def render_pdf_pages(
     return [img for _, img in iter_pdf_pages(file_path, max_pages=max_pages, dpi=dpi)]
 
 
+def read_pdf_text_layers(file_path: str, max_pages: Optional[int] = None) -> List[str]:
+    """
+    Returns the embedded (digital) text of each PDF page, in order. Pages that
+    are scanned images return an empty string. Applies the same open/encryption
+    and page-limit checks as iter_pdf_pages.
+    """
+    if max_pages is None:
+        max_pages = getattr(settings, "max_pdf_pages", DEFAULT_MAX_PDF_PAGES)
+    if not os.path.exists(file_path) or os.path.getsize(file_path) == 0:
+        raise PDFEmptyError("PDF file is empty (0 bytes).")
+    try:
+        doc = fitz.open(file_path)
+    except Exception as exc:
+        raise PDFCorruptError("Invalid or corrupted PDF file.") from exc
+    try:
+        if doc.is_encrypted and not doc.authenticate(""):
+            raise PDFEncryptedError("PDF is password protected or encrypted and cannot be processed.")
+        if len(doc) == 0:
+            raise PDFEmptyError("PDF contains no pages.")
+        if len(doc) > max_pages:
+            raise PDFPageLimitExceededError(
+                f"PDF page count ({len(doc)}) exceeds maximum permitted limit ({max_pages})."
+            )
+        texts = []
+        for page in doc:
+            try:
+                texts.append((page.get_text("text", sort=True) or "").strip())
+            except Exception:
+                texts.append("")
+        return texts
+    finally:
+        doc.close()
+
+
+def _has_usable_text_layer(text: str) -> bool:
+    min_chars = getattr(settings, "pdf_text_layer_min_chars", 40)
+    return len(re.sub(r"\s+", "", text or "")) >= min_chars
+
+
 def load_image_or_pdf(file_path: str) -> Image.Image:
     """
     Loads an image or the first page of a PDF as a PIL RGB image.
@@ -168,11 +214,16 @@ def preprocess_pil_image(image: Image.Image) -> Image.Image:
     """
     arr = np.array(image)
 
-    # Upscale resolution if needed to improve OCR accuracy for small text
+    # Upscale resolution if needed to improve OCR accuracy for small text,
+    # bounded safely so CRAFT / PyTorch does not exceed memory allocation limits.
     h, w = arr.shape[:2]
-    if w < TARGET_WIDTH:
-        scale = TARGET_WIDTH / float(w)
-        arr = cv2.resize(arr, (int(w * scale), int(h * scale)), interpolation=cv2.INTER_CUBIC)
+    max_dim = max(h, w)
+    if w < TARGET_WIDTH and max_dim < 1800:
+        scale = min(2.5, TARGET_WIDTH / float(w))
+        if h * scale > 1800:
+            scale = 1800.0 / float(h)
+        if scale > 1.05:
+            arr = cv2.resize(arr, (int(w * scale), int(h * scale)), interpolation=cv2.INTER_CUBIC)
 
     # Convert to Grayscale
     if len(arr.shape) == 3:
@@ -331,15 +382,27 @@ class OCRManager:
         self.paddle_provider = None
         self.easy_provider = None
         self._initialized = False
+        self._init_lock = threading.Lock()
+        # OCR engines are not guaranteed thread-safe; serialize inference per process
+        self.inference_lock = threading.Lock()
 
     def initialize(self):
         if self._initialized:
             return
+        with self._init_lock:
+            if self._initialized:
+                return
+            self._load_engines()
+
+    def _load_engines(self):
 
         logger.info("Initializing OCR Providers...")
+        enabled = {e.strip().lower() for e in os.getenv("OCR_ENGINES", "paddleocr,easyocr").split(",") if e.strip()}
 
         # Load EasyOCR Provider first to avoid MKL library conflict on Windows
         try:
+            if "easyocr" not in enabled:
+                raise RuntimeError("disabled via OCR_ENGINES")
             import easyocr
             logger.info("Loading EasyOCR Reader model...")
             easy_reader = easyocr.Reader(EASYOCR_LANGUAGES, gpu=False)
@@ -355,6 +418,8 @@ class OCRManager:
 
         # Load PaddleOCR Provider
         try:
+            if "paddleocr" not in enabled:
+                raise RuntimeError("disabled via OCR_ENGINES")
             import paddle
             try:
                 paddle.set_flags({
@@ -379,6 +444,18 @@ class OCRManager:
             logger.warning("PaddleOCR provider could not be loaded: %s", exc)
 
         self._initialized = True
+        if self.paddle_provider is None and self.easy_provider is None:
+            logger.error(
+                "No OCR engine could be loaded. Scanned images will only be processed if AI vision "
+                "fallback is configured. Install backend/requirements-ocr.txt to enable local OCR."
+            )
+
+    def status(self) -> dict:
+        return {
+            "initialized": self._initialized,
+            "paddleocr": self.paddle_provider is not None,
+            "easyocr": self.easy_provider is not None,
+        }
 
 
 ocr_manager = OCRManager()
@@ -392,9 +469,18 @@ def extract_text_from_image(image: Image.Image) -> OCRResult:
     """
     Runs the primary OCR engine (PaddleOCR) and fallback (EasyOCR) on a single image.
     """
-    preprocessed = preprocess_pil_image(image)
     ocr_manager.initialize()
+    if ocr_manager.paddle_provider is None and ocr_manager.easy_provider is None:
+        raise OCREngineUnavailableError(
+            "No OCR engine is available (PaddleOCR/EasyOCR failed to load or are not installed). "
+            "Install backend/requirements-ocr.txt, or configure an OpenAI key to read images with AI vision."
+        )
+    preprocessed = preprocess_pil_image(image)
+    with ocr_manager.inference_lock:
+        return _run_ocr_engines(preprocessed)
 
+
+def _run_ocr_engines(preprocessed: Image.Image) -> OCRResult:
     # 1. Run PaddleOCR (Primary)
     paddle_result = None
     if ocr_manager.paddle_provider is not None:
@@ -446,19 +532,34 @@ def extract_text(file_path: str) -> OCRResult:
     page_results: List[Tuple[int, OCRResult]] = []
 
     if is_pdf:
+        # Digital PDFs carry exact text; use it directly and only OCR scanned pages
+        text_layers = read_pdf_text_layers(file_path)
+        engine_missing: Optional[OCREngineUnavailableError] = None
         for page_num, page_img in iter_pdf_pages(file_path):
+            layer_text = text_layers[page_num - 1] if page_num - 1 < len(text_layers) else ""
+            if _has_usable_text_layer(layer_text):
+                lines = [ln.strip() for ln in layer_text.splitlines() if ln.strip()]
+                page_results.append((page_num, OCRResult(text="\n".join(lines), confidence=0.99, raw_lines=lines)))
+                continue
             try:
                 res = extract_text_from_image(page_img)
                 page_results.append((page_num, res))
+            except OCREngineUnavailableError as exc:
+                engine_missing = exc
+                page_results.append((page_num, OCRResult(text="", confidence=0.0, raw_lines=[])))
             except Exception as exc:
                 logger.warning("OCR failed on PDF page %d: %s", page_num, exc)
                 page_results.append((page_num, OCRResult(text="", confidence=0.0, raw_lines=[f"Error: {exc}"])))
+        if engine_missing and not any(r.text.strip() for _, r in page_results):
+            raise engine_missing
     else:
         try:
             with Image.open(file_path) as img:
                 rgb_img = img.convert("RGB")
                 res = extract_text_from_image(rgb_img)
                 page_results.append((1, res))
+        except OCREngineUnavailableError:
+            raise
         except Exception as exc:
             logger.warning("Failed to open image file '%s': %s", file_path, exc)
             raise ValueError(f"Unable to process image file: {exc}") from exc
