@@ -2,6 +2,19 @@
 
 All notable changes to the **Document to Excel** codebase are documented here.
 
+## [2.1.0] - 2026-11-12
+
+### Added
+- Public landing page shown before sign-in, with a sign-in dialog.
+- `SETUP_GUIDE.pdf`: short client setup and deployment guide.
+
+### Changed
+- Removed the one-click demo login and the pre-filled default password from the frontend; a test now fails if the default password appears in frontend code.
+- Landing page: removed unverified claims (fixed accuracy and speed numbers, "zero hallucination", SAP/Zoho push).
+- Session-expiry dialog again says the session expired and that unsaved edits are kept.
+- Removed unused scripts `backend/app/test_auto_model.py`, `backend/app/test_free_models.py`, `backend/app/config/ai_constants.py`; the secret scan test now covers all backend and frontend source.
+- README: dev server port is 5180.
+
 ## [2.0.0] - 2026-10-21
 
 ### Added

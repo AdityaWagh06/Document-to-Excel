@@ -1,7 +1,7 @@
-import { FileText, History, RefreshCw, MessageSquare, BarChart3, LayoutDashboard, LogOut, FileSpreadsheet } from 'lucide-react';
+import { FileText, History, RefreshCw, MessageSquare, BarChart3, LayoutDashboard, LogOut, FileSpreadsheet, Sparkles } from 'lucide-react';
 import STR from '../../constants/strings';
 
-export const NAV_TABS = [
+const NAV_TABS = [
   { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
   { id: 'extract', label: 'Scan & review', icon: FileText },
   { id: 'history', label: 'Invoices', icon: History },
@@ -47,6 +47,19 @@ export default function Header({ activeTab, setActiveTab, authUser, onLogoutClic
 
         {authUser && (
           <div className="flex shrink-0 items-center gap-2">
+            <button
+              type="button"
+              onClick={() => setActiveTab(activeTab === 'landing' ? 'dashboard' : 'landing')}
+              className={`inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-xs font-semibold transition ${
+                activeTab === 'landing'
+                  ? 'border-indigo-500 bg-indigo-50 text-indigo-700'
+                  : 'border-slate-200 bg-white text-slate-700 hover:bg-slate-50'
+              }`}
+            >
+              <Sparkles className="h-3.5 w-3.5 text-indigo-600" />
+              <span className="hidden sm:inline">Landing Page</span>
+            </button>
+
             <span className="hidden items-center gap-2 text-sm font-medium text-slate-700 sm:inline-flex">
               <span className="flex h-7 w-7 items-center justify-center rounded-full bg-ink-950 text-[11px] font-semibold uppercase text-white" aria-hidden="true">
                 {String(authUser).slice(0, 2)}
@@ -58,7 +71,7 @@ export default function Header({ activeTab, setActiveTab, authUser, onLogoutClic
               onClick={onLogoutClick}
               className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50"
             >
-              <LogOut className="h-4 w-4" aria-hidden="true" />
+              <LogOut className="h-4 w-4" />
               <span className="hidden sm:inline">Sign out</span>
             </button>
           </div>

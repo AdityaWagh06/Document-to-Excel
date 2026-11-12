@@ -169,7 +169,7 @@ In development (`FLASK_ENV=development`) unset secrets get safe development defa
 ```bash
 cd frontend
 npm install
-npm run dev          # http://localhost:5173, proxies /api to http://127.0.0.1:5000
+npm run dev          # http://localhost:5180, proxies /api to http://127.0.0.1:5000
 ```
 
 Point the dev proxy elsewhere with `VITE_BACKEND_URL=http://host:port npm run dev`. `npm run build` writes the production bundle to `frontend/dist`.

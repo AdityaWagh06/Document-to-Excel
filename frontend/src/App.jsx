@@ -19,6 +19,7 @@ import { useDocumentProcessor } from './hooks/useDocumentProcessor';
 import { useFilePreview } from './hooks/useFilePreview';
 import { useToast } from './context/ToastContext';
 import { checkSessionApi, logoutApi } from './services/api';
+import LandingPage from './components/landing/LandingPage';
 
 const lineItemEditable = (params) => params.data?.section === 'Line Items';
 const lineItemValue = (key, fallback) => (params) =>
@@ -29,6 +30,7 @@ export default function App() {
   const [activeTab, setActiveTab] = useState('dashboard');
   // undefined = still checking, null = signed out, string = signed-in user
   const [authUser, setAuthUser] = useState(undefined);
+  const [showLoginModal, setShowLoginModal] = useState(false);
   const [sessionExpired, setSessionExpired] = useState(false);
 
   const fileInputRef = useRef(null);
@@ -99,14 +101,29 @@ export default function App() {
 
   if (authUser === undefined) {
     return (
-      <div className="flex min-h-screen items-center justify-center gap-2 text-sm text-slate-500">
-        <Loader2 className="h-4 w-4 animate-spin" /> Loading…
+      <div className="flex min-h-screen items-center justify-center gap-2 text-sm text-slate-500 bg-slate-950">
+        <Loader2 className="h-5 w-5 animate-spin text-indigo-400" /> <span className="text-slate-300">Loading {STR.appName}…</span>
       </div>
     );
   }
 
   if (authUser === null) {
-    return <LoginModal isOpen variant="page" onLoginSuccess={(data) => setAuthUser(data?.user || 'admin')} />;
+    return (
+      <>
+        <LandingPage
+          onOpenLogin={() => setShowLoginModal(true)}
+        />
+        <LoginModal
+          isOpen={showLoginModal}
+          variant="modal"
+          onClose={() => setShowLoginModal(false)}
+          onLoginSuccess={(data) => {
+            setAuthUser(data?.user || 'admin');
+            setShowLoginModal(false);
+          }}
+        />
+      </>
+    );
   }
 
   const doc = processor.documentState;
@@ -171,12 +188,19 @@ export default function App() {
         {activeTab === 'analytics' && <AnalyticsSection />}
         {activeTab === 'erp' && <ErpIntegrationSection />}
         {activeTab === 'whatsapp' && <WhatsAppAutomationSection />}
+        {activeTab === 'landing' && (
+          <div className="-mx-4 -mt-6 -mb-8 sm:-mx-6 lg:-mx-8">
+            <LandingPage onOpenLogin={() => setActiveTab('dashboard')} />
+          </div>
+        )}
       </main>
 
       <Footer />
 
       <LoginModal
         isOpen={sessionExpired}
+        title="Your session has expired"
+        subtitle="Sign in again to continue. Unsaved edits on this page are kept."
         onLoginSuccess={(data) => {
           setAuthUser(data?.user || authUser);
           setSessionExpired(false);

@@ -320,13 +320,20 @@ class TestSecretScrubbing(unittest.TestCase):
     Tests ensuring no hardcoded API keys exist in test scripts.
     """
 
-    def test_no_hardcoded_keys_in_test_free_models(self):
-        script_path = ROOT_DIR / "backend" / "app" / "test_free_models.py"
-        self.assertTrue(script_path.exists())
-        content = script_path.read_text(encoding="utf-8")
-        matches = re.findall(r"sk-[a-zA-Z0-9_\-]{20,}", content)
-        self.assertEqual(len(matches), 0, "Found hardcoded API key in test_free_models.py!")
+    def test_no_hardcoded_keys_in_source(self):
+        patterns = re.compile(r"sk-[a-zA-Z0-9_\-]{20,}|AIza[0-9A-Za-z_\-]{30,}|gsk_[a-zA-Z0-9]{20,}")
+        files = list((ROOT_DIR / "backend" / "app").rglob("*.py"))
+        files += list((ROOT_DIR / "frontend" / "src").rglob("*.js*"))
+        self.assertTrue(files)
+        offenders = [str(f) for f in files if patterns.search(f.read_text(encoding="utf-8", errors="ignore"))]
+        self.assertEqual(offenders, [], f"Hardcoded API key found in: {offenders}")
 
+    def test_no_default_admin_password_in_frontend(self):
+        offenders = [
+            str(f) for f in (ROOT_DIR / "frontend" / "src").rglob("*.js*")
+            if "dev-admin-pass" in f.read_text(encoding="utf-8", errors="ignore")
+        ]
+        self.assertEqual(offenders, [], f"Default admin password shipped in frontend: {offenders}")
 
 if __name__ == "__main__":
     unittest.main()
