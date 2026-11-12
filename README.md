@@ -179,7 +179,7 @@ Point the dev proxy elsewhere with `VITE_BACKEND_URL=http://host:port npm run de
 One command installs what is missing and starts the app on `http://localhost:5000` (API and web app from one server, no nginx needed):
 
 * **Windows:** double-click `start-windows.bat` (needs Python 3.11; Node.js 20 only if `frontend/dist` is not already built).
-* **Linux/macOS:** `./start-linux.sh`
+* **Linux/macOS:** `bash start-linux.sh`
 
 On the first run the script creates `.env` from `.env.example` and stops so you can fill it in. `INSTALL_OCR=true` in `.env` also installs the local OCR engines (large download). Run the script with `rebuild` after updating the code. The scripts use Waitress, which works on Windows; `HOST=0.0.0.0` in `.env` lets other computers on the network connect (then also set `SESSION_COOKIE_SECURE=false` unless HTTPS is in front). Linux servers can use gunicorn instead: `SERVE_FRONTEND=true gunicorn -c backend/gunicorn.conf.py "backend.app:create_app()"`.
 
