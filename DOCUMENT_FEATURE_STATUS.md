@@ -27,7 +27,8 @@ This file states what is implemented, how it was verified, and what still depend
 | Login, sessions, CSRF, rate limit, API key | Done, verified | Single admin account from `.env` |
 | SQLite persistence, webhook idempotency, session revocation | Done, verified | |
 | Docker / Compose / nginx / gunicorn | Done | Compose file validated, gunicorn and nginx config run successfully; full image builds must be confirmed on a machine with normal internet (see README) |
-| GitHub Actions CI + GHCR publishing | Written | Runs on first push to GitHub |
+| Start without Docker (Windows/Linux scripts) | Done, verified | `start-windows.bat`, `start-linux.sh`; tested on Windows and in CI |
+| GitHub Actions CI + GHCR publishing | Done | CI runs on every push to main, including the full OCR image build |
 
 ## Not included
 

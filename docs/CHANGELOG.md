@@ -7,6 +7,8 @@ All notable changes to the **Document to Excel** codebase are documented here.
 ### Added
 - Public landing page shown before sign-in, with a sign-in dialog.
 - `SETUP_GUIDE.pdf`: short client setup and deployment guide.
+- Run without Docker: `start-windows.bat` / `start-linux.sh` install what is missing and start the app with Waitress on one port; `SERVE_FRONTEND=true` lets the backend serve the built web app (`backend/serve.py`).
+- CI: full backend image build with OCR plus a real OCR read of a scanned image, and a no-Docker start test of `start-linux.sh`.
 
 ### Changed
 - Removed the one-click demo login and the pre-filled default password from the frontend; a test now fails if the default password appears in frontend code.

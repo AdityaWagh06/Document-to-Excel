@@ -174,14 +174,14 @@ npm run dev          # http://localhost:5180, proxies /api to http://127.0.0.1:5
 
 Point the dev proxy elsewhere with `VITE_BACKEND_URL=http://host:port npm run dev`. `npm run build` writes the production bundle to `frontend/dist`.
 
-### Production without Docker
+### Production without Docker (start scripts)
 
-```bash
-pip install -r backend/requirements.txt
-gunicorn -c backend/gunicorn.conf.py "backend.app:create_app()"
-```
+One command installs what is missing and starts the app on `http://localhost:5000` (API and web app from one server, no nginx needed):
 
-Serve `frontend/dist` with any web server and proxy `/api/` to gunicorn (see `deploy/nginx.conf`). gunicorn does not run on Windows; on Windows use Docker Desktop.
+* **Windows:** double-click `start-windows.bat` (needs Python 3.11; Node.js 20 only if `frontend/dist` is not already built).
+* **Linux/macOS:** `./start-linux.sh`
+
+On the first run the script creates `.env` from `.env.example` and stops so you can fill it in. `INSTALL_OCR=true` in `.env` also installs the local OCR engines (large download). Run the script with `rebuild` after updating the code. The scripts use Waitress, which works on Windows; `HOST=0.0.0.0` in `.env` lets other computers on the network connect (then also set `SESSION_COOKIE_SECURE=false` unless HTTPS is in front). Linux servers can use gunicorn instead: `SERVE_FRONTEND=true gunicorn -c backend/gunicorn.conf.py "backend.app:create_app()"`.
 
 ---
 

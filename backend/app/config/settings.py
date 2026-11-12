@@ -163,6 +163,12 @@ class Settings:
         default_db = str(Path(__file__).resolve().parent.parent.parent / "data" / "invoices.db")
         self.database_path = os.getenv("DATABASE_PATH", default_db)
 
+        # Serve the built React app (frontend/dist) from this server. Used by the
+        # no-Docker start scripts; the Docker setup serves it with nginx instead.
+        self.serve_frontend = os.getenv("SERVE_FRONTEND", "false").strip().lower() == "true"
+        frontend_dir = os.getenv("FRONTEND_DIST_DIR", "").strip()
+        self.frontend_dist_dir = Path(frontend_dir) if frontend_dir else _PROJECT_ROOT / "frontend" / "dist"
+
     def ai_provider_settings(self, provider: str) -> dict:
         """Key, model, base URL and help text for one AI provider."""
         table = {

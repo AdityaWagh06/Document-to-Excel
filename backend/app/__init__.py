@@ -1,6 +1,6 @@
 from datetime import timedelta
 import logging
-from flask import Flask, jsonify, request, session, g
+from flask import Flask, jsonify, request, session, g, send_from_directory
 from flask_cors import CORS
 from flask_limiter.errors import RateLimitExceeded
 from backend.app.api.v1.routes import api_bp
@@ -113,6 +113,10 @@ def create_app():
         resources={r"/*": {"origins": settings.cors_allowed_origins}}
     )
 
+    # Optional: serve the built web app from this server (no-Docker setup).
+    # Registered before the auth check: these are public static files, like nginx serves them.
+    _register_frontend(app)
+
     # Global Authentication and CSRF Protection Middleware
     @app.before_request
     def enforce_auth_and_csrf():
@@ -187,3 +191,34 @@ def create_app():
     app.register_blueprint(auth_bp, url_prefix="/auth", name="auth_root")
 
     return app
+
+
+def _register_frontend(app):
+    if not settings.serve_frontend:
+        return
+    dist = settings.frontend_dist_dir.resolve()
+    if not (dist / "index.html").is_file():
+        logger.error(
+            "SERVE_FRONTEND=true but %s/index.html was not found. Build the web app first: "
+            "cd frontend && npm ci && npm run build", dist,
+        )
+        return
+    root_files = {f.name for f in dist.iterdir() if f.is_file()}
+    logger.info("Serving the web app from %s", dist)
+
+    @app.before_request
+    def serve_frontend_files():
+        if request.method not in ("GET", "HEAD"):
+            return None
+        path = request.path
+        if path == "/":
+            response = send_from_directory(dist, "index.html", max_age=0)
+            response.headers["Cache-Control"] = "no-cache"
+            return response
+        if path.startswith("/assets/"):
+            # send_from_directory rejects paths that escape the folder
+            return send_from_directory(dist / "assets", path[len("/assets/"):], max_age=31536000)
+        name = path.lstrip("/")
+        if name in root_files and name != "index.html":
+            return send_from_directory(dist, name)
+        return None
